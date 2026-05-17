@@ -57,7 +57,12 @@ class HybridRecommender:
                     self._sentiment_map[title] = row['avg_sentiment']
 
                 raw_rating = float(row.get('rating', 0))
-                review_count = int(row.get('review_count', 0))
+                review_count = row.get('review_count', 0)
+
+                if np.isnan(review_count):
+                    review_count = 0
+
+                review_count = int(review_count)
                 self._review_count_map[title] = review_count
                 self._rating_map[title] = bayesian_rating(
                     raw_rating, review_count, global_avg
