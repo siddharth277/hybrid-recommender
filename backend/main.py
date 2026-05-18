@@ -6,10 +6,11 @@ import os
 import sys
 import io
 import time
+import logging
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -28,6 +29,16 @@ from hybrid_model import HybridRecommender
 
 # ── App ──────────────────────────────────────────────────────────────
 app = FastAPI(title="Hybrid Recommender API", version="3.0")
+logger = logging.getLogger("hybrid_recommender.api")
+RESPONSE_TIME_HEADER = "X-Response-Time-ms"
+DEFAULT_SLOW_RESPONSE_THRESHOLD_MS = 1000.0
+
+
+def _get_slow_response_threshold_ms() -> float:
+    try:
+        return float(os.environ.get("RESPONSE_TIME_SLOW_MS", DEFAULT_SLOW_RESPONSE_THRESHOLD_MS))
+    except ValueError:
+        return DEFAULT_SLOW_RESPONSE_THRESHOLD_MS
 
 # CORS — restrict in production; allow localhost for development
 allowed_origins = os.environ.get("CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
@@ -37,6 +48,34 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type", "Authorization"],
 )
+
+
+@app.middleware("http")
+async def response_time_middleware(request: Request, call_next):
+    """Attach response duration headers and log every API request."""
+    started_at = time.perf_counter()
+    response = None
+
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        status_code = response.status_code if response is not None else 500
+
+        if response is not None:
+            response.headers[RESPONSE_TIME_HEADER] = f"{duration_ms:.2f}"
+
+        log_fn = logger.warning if duration_ms >= _get_slow_response_threshold_ms() else logger.info
+        log_fn(
+            "request_completed",
+            extra={
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": status_code,
+                "duration_ms": round(duration_ms, 2),
+            },
+        )
 
 # ── State ────────────────────────────────────────────────────────────
 models = {
