@@ -416,6 +416,69 @@ def list_items(page: int = 1, per_page: int = 50):
     }
 
 
+# ── Similarity Matrix ──────────────────────────────────────────────
+
+@app.get("/api/similarity-matrix")
+def similarity_matrix(items: str = Query(..., description="Comma-separated product titles")):
+    """Compute an NxN cosine similarity matrix for the given product titles.
+
+    Uses the content model's TF-IDF vectors to calculate pairwise cosine
+    similarity scores.  Accepts up to 20 items to keep response size
+    manageable.
+
+    Example::
+
+        GET /api/similarity-matrix?items=ProductA,ProductB,ProductC
+    """
+    if not models["ready"] or models["content"] is None:
+        raise HTTPException(400, "Models not built. Build first via /api/build.")
+
+    titles = [t.strip() for t in items.split(",") if t.strip()]
+    if len(titles) < 2:
+        raise HTTPException(400, "Provide at least 2 comma-separated item titles.")
+    if len(titles) > 20:
+        raise HTTPException(400, "Maximum 20 items allowed per request.")
+
+    content_model = models["content"]
+    from sklearn.metrics.pairwise import cosine_similarity as cos_sim
+
+    # Resolve indices and filter out unknown titles
+    indices = []
+    valid_titles = []
+    not_found = []
+    for title in titles:
+        idx = content_model._title_to_idx.get(title.lower())
+        if idx is not None:
+            indices.append(idx)
+            valid_titles.append(content_model.df.iloc[idx]['title'])  # canonical case
+        else:
+            not_found.append(title)
+
+    if len(valid_titles) < 2:
+        raise HTTPException(
+            404,
+            f"Need at least 2 valid items. Not found: {not_found}",
+        )
+
+    # Compute NxN similarity from the TF-IDF matrix rows
+    sub_matrix = content_model.matrix[indices]
+    sim = cos_sim(sub_matrix, sub_matrix)
+
+    # Build JSON-serializable matrix (rounded to 4 decimals)
+    matrix = [[round(float(sim[i][j]), 4) for j in range(len(valid_titles))]
+              for i in range(len(valid_titles))]
+
+    result = {
+        "labels": valid_titles,
+        "matrix": matrix,
+        "size": len(valid_titles),
+    }
+    if not_found:
+        result["not_found"] = not_found
+
+    return result
+
+
 # ── Categories ──────────────────────────────────────────────────────
 
 @app.get("/api/categories")

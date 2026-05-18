@@ -126,6 +126,25 @@
             <div class="recs-strip" id="recs-strip"></div>
         </section>
 
+        <!-- Similarity Heatmap -->
+        <section class="heatmap-section" id="heatmap-section" hidden>
+            <div class="section-header">
+                <h2 class="section-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                    </svg>
+                    Similarity Heatmap
+                </h2>
+                <button class="btn btn--outline btn--sm" id="heatmap-close-btn">✕ Close</button>
+            </div>
+            <div class="heatmap-loader" id="heatmap-loader" hidden>
+                <div class="spinner" role="status"></div>
+                <span class="heatmap-loader__text">Computing similarities…</span>
+            </div>
+            <div class="heatmap-container" id="heatmap-container"></div>
+        </section>
+
         <!-- Product Grid -->
         <section class="products-section" id="products-section">
             <div class="section-header">

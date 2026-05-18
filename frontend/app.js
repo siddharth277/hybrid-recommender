@@ -35,6 +35,7 @@ const state = {
     selectedSearchIdx: -1,
     isAuthSignUp: false,
     modelReady: false,
+    heatmapSelected: [],  // titles selected for comparison
 };
 
 // ── DOM Elements ────────────────────────────────────────────────────
@@ -70,6 +71,10 @@ const els = {
     recsSection: $('recs-section'),
     recsLoader: $('recs-loader'),
     recsStrip: $('recs-strip'),
+    heatmapSection: $('heatmap-section'),
+    heatmapLoader: $('heatmap-loader'),
+    heatmapContainer: $('heatmap-container'),
+    heatmapCloseBtn: $('heatmap-close-btn'),
     toastContainer: $('toast-container'),
     weightAlpha: $('weight-alpha'),
     weightBeta: $('weight-beta'),
@@ -401,6 +406,7 @@ function renderProducts(products, append) {
         const card = document.createElement('div');
         card.className = 'product-card';
         card.style.animationDelay = `${i * 50}ms`;
+        const isChecked = state.heatmapSelected.includes(p.title);
         card.innerHTML = `
             <div class="product-card__image">
                 ${categoryIcon(p.category)}
@@ -418,6 +424,10 @@ function renderProducts(products, append) {
                 </div>
             </div>
             <div class="product-card__actions">
+                <label class="compare-label">
+                    <input type="checkbox" class="compare-checkbox" data-title="${p.title}" ${isChecked ? 'checked' : ''}>
+                    Compare
+                </label>
                 <button class="btn--add-cart" data-title="${p.title}">
                     Get Recommendations
                 </button>
@@ -431,6 +441,28 @@ function renderProducts(products, append) {
             loadRecommendations(title);
             toast(`Finding recommendations for "${title.substring(0, 40)}..."`, 'info');
         });
+
+        // Compare checkbox
+        const checkbox = card.querySelector('.compare-checkbox');
+        if (checkbox) {
+            checkbox.addEventListener('change', (e) => {
+                e.stopPropagation();
+                const title = checkbox.dataset.title;
+                if (checkbox.checked) {
+                    if (state.heatmapSelected.length >= 20) {
+                        checkbox.checked = false;
+                        toast('Maximum 20 items for comparison', 'error');
+                        return;
+                    }
+                    if (!state.heatmapSelected.includes(title)) {
+                        state.heatmapSelected.push(title);
+                    }
+                } else {
+                    state.heatmapSelected = state.heatmapSelected.filter(t => t !== title);
+                }
+                updateCompareCount();
+            });
+        }
 
         card.addEventListener('click', () => {
             loadRecommendations(p.title);
@@ -641,6 +673,105 @@ function bindEvents() {
     [els.weightAlpha, els.weightBeta, els.weightGamma].forEach((slider) => {
         slider.addEventListener('change', handleWeightChange);
     });
+
+    // Heatmap close
+    els.heatmapCloseBtn.addEventListener('click', () => {
+        els.heatmapSection.hidden = true;
+    });
+}
+
+// ── Similarity Heatmap ──────────────────────────────────────────────
+function updateCompareCount() {
+    const count = state.heatmapSelected.length;
+    // Show/hide the floating compare button
+    let fab = document.getElementById('compare-fab');
+    if (count >= 2) {
+        if (!fab) {
+            fab = document.createElement('button');
+            fab.id = 'compare-fab';
+            fab.className = 'compare-fab';
+            fab.addEventListener('click', loadHeatmap);
+            document.body.appendChild(fab);
+        }
+        fab.textContent = `Compare ${count} Products`;
+        fab.hidden = false;
+    } else if (fab) {
+        fab.hidden = true;
+    }
+}
+
+async function loadHeatmap() {
+    if (state.heatmapSelected.length < 2) {
+        toast('Select at least 2 products to compare', 'info');
+        return;
+    }
+    if (!state.modelReady) {
+        toast('Build models first to compare products', 'info');
+        return;
+    }
+
+    els.heatmapSection.hidden = false;
+    els.heatmapLoader.hidden = false;
+    els.heatmapContainer.innerHTML = '';
+
+    try {
+        const itemsParam = state.heatmapSelected.map(t => encodeURIComponent(t)).join(',');
+        const data = await API.get(`/api/similarity-matrix?items=${itemsParam}`);
+        els.heatmapLoader.hidden = true;
+
+        if (data.not_found && data.not_found.length) {
+            toast(`${data.not_found.length} item(s) not found in model`, 'info');
+        }
+
+        renderHeatmap(data.labels, data.matrix);
+        els.heatmapSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) {
+        els.heatmapLoader.hidden = true;
+        els.heatmapContainer.innerHTML = '<div style="padding:16px;color:var(--text-muted);">Could not compute similarity matrix.</div>';
+        toast('Heatmap failed: ' + err.message, 'error');
+    }
+}
+
+function renderHeatmap(labels, matrix) {
+    const n = labels.length;
+    const gridSize = n + 1; // +1 for axis labels
+
+    // Truncate long labels for display
+    const shortLabels = labels.map(l => l.length > 25 ? l.substring(0, 22) + '…' : l);
+
+    let html = `<div class="heatmap-grid" style="grid-template-columns: 140px repeat(${n}, 1fr); grid-template-rows: auto repeat(${n}, 1fr);">`;
+
+    // Top-left empty corner cell
+    html += '<div class="heatmap-cell heatmap-corner"></div>';
+
+    // Top axis labels (column headers)
+    for (let j = 0; j < n; j++) {
+        html += `<div class="heatmap-cell heatmap-col-label" title="${labels[j]}">${shortLabels[j]}</div>`;
+    }
+
+    // Rows
+    for (let i = 0; i < n; i++) {
+        // Row label
+        html += `<div class="heatmap-cell heatmap-row-label" title="${labels[i]}">${shortLabels[i]}</div>`;
+
+        for (let j = 0; j < n; j++) {
+            const score = matrix[i][j];
+            const pct = Math.round(score * 100);
+            // Color: white (0) → green (1)
+            const r = Math.round(255 - score * 200);
+            const g = Math.round(255 - score * 55);
+            const b = Math.round(255 - score * 200);
+            const bg = `rgb(${r}, ${g}, ${b})`;
+            const textColor = score > 0.6 ? '#fff' : 'var(--text)';
+
+            html += `<div class="heatmap-cell heatmap-value" style="background:${bg};color:${textColor};" title="${labels[i]} × ${labels[j]}: ${score.toFixed(4)}">
+                ${score === 1 ? '1.0' : score.toFixed(2)}
+            </div>`;
+        }
+    }
+
+    html += '</div>';
+    els.heatmapContainer.innerHTML = html;
 }
 
 // ── CSS spin animation ──────────────────────────────────────────────
