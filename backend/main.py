@@ -245,7 +245,6 @@ def dashboard():
 
 
 # ── Search (PostgreSQL FTS) ─────────────────────────────────────────
-
 @app.get("/api/search")
 def search_items(q: str = "", limit: int = 8):
 
@@ -295,27 +294,14 @@ def search_items(q: str = "", limit: int = 8):
             .execute()
         products = result.data or []
 
-    # Format response
-    results = []
-    for p in products:
-        results.append({
-            'id': p.get('id'),
-            'title': p.get('title', ''),
-            'description': str(p.get('description', ''))[:200],
-            'category': p.get('category', ''),
-            'rating': p.get('rating', 0.0),
-            'avg_sentiment': p.get('avg_sentiment', 0.0),
-            'review_count': p.get('review_count', 0),
-            'rank': p.get('rank', 0.0),
-        })
+    filtered = [
+        item for item in mock_items
+        if q.lower() in item["title"].lower()
+    ]
 
     return {
-        "results": results,
-        "total": len(results),
-        "query": q,
-        "is_fallback": not q.strip(),
+        "items": filtered[:limit]
     }
-
 
 # ── Upload + Import ─────────────────────────────────────────────────
 
