@@ -34,6 +34,7 @@ from nlp_engine import batch_analyze, aggregate_sentiment_by_item
 from content_model import ContentRecommender
 from collaborative_model import CollaborativeRecommender
 from hybrid_model import HybridRecommender, bayesian_rating
+from llm_explainer import get_explainer
 
 # ── App ──────────────────────────────────────────────────────────────
 app = FastAPI(title="Hybrid Recommender API", version="3.0")
@@ -506,18 +507,28 @@ def build_models():
 # ── Recommendations ────────────────────────────────────────────────
 
 @app.get("/api/recommend/{item_title}")
-def get_recommendations(item_title: str, top_n: int = 10, explain: bool = Query(False)):
-    """Get hybrid recommendations for an item."""
+def get_recommendations(item_title: str, top_n: int = 10, explain: bool = Query(False), llm_explain: bool = Query(False)):
+    """Get hybrid recommendations for an item with optional LLM explanations."""
     if not models["ready"]:
         raise HTTPException(400, "Models not built. Build first via /api/build.")
     recs = models["hybrid"].recommend(item_title, top_n=top_n, explain=explain)
     if not recs:
         raise HTTPException(404, "Item not found or no recommendations.")
+    
+    # Add LLM explanations if requested
+    if llm_explain:
+        try:
+            explainer = get_explainer()
+            recs = explainer.explain_multiple(recs, item_title)
+        except Exception as e:
+            logger.warning(f"LLM explanation failed: {e}. Returning recommendations without LLM explanations.")
+    
     return {
         "query_item": item_title,
         "recommendations": recs,
         "weights": models["hybrid"].get_weights(),
         "explain": explain,
+        "llm_explain": llm_explain,
     }
 
 
