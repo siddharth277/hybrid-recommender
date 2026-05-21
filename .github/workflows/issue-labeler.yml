@@ -1,0 +1,134 @@
+name: 🤖 Smart Issue Labeler
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  label-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-label and triage issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const title = (issue.title || '').toLowerCase();
+            const body  = (issue.body  || '').toLowerCase();
+            const text  = title + ' ' + body;
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+            const num   = issue.number;
+
+            const existingLabels = issue.labels.map(l => l.name);
+            const toAdd = new Set();
+
+            // ── Always start with needs-triage ──
+            if (!existingLabels.includes('needs-triage')) {
+              toAdd.add('needs-triage');
+            }
+
+            // ── Type detection ──
+            const bugWords    = ['bug','error','crash','fail','broken','issue','exception','traceback','not working','wrong','incorrect','unexpected','undefined','null','500','404'];
+            const featWords   = ['feat','feature','add','new','enhance','improve','support','allow','enable','request','suggest','would be nice','implement'];
+            const docsWords   = ['doc','readme','comment','typo','spelling','grammar','guide','tutorial','example','explain'];
+            const testWords   = ['test','spec','coverage','pytest','unittest','assert','mock'];
+            const perfWords   = ['performance','slow','speed','optimize','latency','cache','memory','cpu','bottleneck','faster'];
+            const secWords    = ['security','vulnerability','xss','injection','auth','permission','token','secret','expose'];
+            const designWords = ['ui','ux','css','style','layout','frontend','design','responsive','mobile','visual','color','font'];
+            const devopsWords = ['docker','ci','cd','deploy','pipeline','action','workflow','build','container','kubernetes','k8s'];
+            const refactorWords = ['refactor','cleanup','clean up','restructure','reorganize','technical debt','duplicate','redundant'];
+            const accessWords = ['accessibility','a11y','aria','screen reader','keyboard','contrast','wcag'];
+
+            if (bugWords.some(w    => text.includes(w))) toAdd.add('type:bug');
+            if (featWords.some(w   => text.includes(w))) toAdd.add('type:feature');
+            if (docsWords.some(w   => text.includes(w))) toAdd.add('type:docs');
+            if (testWords.some(w   => text.includes(w))) toAdd.add('type:testing');
+            if (perfWords.some(w   => text.includes(w))) toAdd.add('type:performance');
+            if (secWords.some(w    => text.includes(w))) toAdd.add('type:security');
+            if (designWords.some(w => text.includes(w))) toAdd.add('type:design');
+            if (devopsWords.some(w => text.includes(w))) toAdd.add('type:devops');
+            if (refactorWords.some(w => text.includes(w))) toAdd.add('type:refactor');
+            if (accessWords.some(w => text.includes(w))) toAdd.add('type:accessibility');
+
+            // ── Area detection ──
+            const frontendWords  = ['frontend','html','css','javascript','js','ui','ux','dashboard','index.html','styles','app.js','browser','react','vue'];
+            const backendWords   = ['backend','api','server','endpoint','route','flask','fastapi','python','database','db','supabase','sql','query'];
+            const mlWords        = ['model','recommend','collaborative','content','hybrid','embedding','vector','train','predict','inference','nlp','llm','ai'];
+            const dataWords      = ['data','dataset','csv','preprocessing','pipeline','etl','schema','migration'];
+
+            if (frontendWords.some(w  => text.includes(w))) toAdd.add('frontend');
+            if (backendWords.some(w   => text.includes(w))) toAdd.add('backend');
+            if (mlWords.some(w        => text.includes(w))) toAdd.add('ml/ai');
+            if (dataWords.some(w      => text.includes(w))) toAdd.add('data');
+
+            // ── Difficulty detection ──
+            const easyWords   = ['typo','readme','comment','small','minor','simple','easy','quick','good first'];
+            const mediumWords = ['medium','moderate','intermediate','some experience'];
+            const hardWords   = ['complex','difficult','hard','advanced','major','significant','architecture','redesign'];
+
+            const hasEasy   = easyWords.some(w   => text.includes(w));
+            const hasMedium = mediumWords.some(w  => text.includes(w));
+            const hasHard   = hardWords.some(w    => text.includes(w));
+
+            // Default unrecognized to easy (beginner-friendly default)
+            if (!existingLabels.some(l => ['easy','medium','hard'].includes(l))) {
+              if (hasHard)        toAdd.add('hard');
+              else if (hasMedium) toAdd.add('medium');
+              else if (hasEasy)   toAdd.add('easy');
+              else                toAdd.add('easy'); // default
+            }
+
+            // ── GSSoC tag ──
+            if (!existingLabels.includes('gssoc26')) toAdd.add('gssoc26');
+
+            // ── Apply all labels ──
+            const newLabels = [...toAdd].filter(l => !existingLabels.includes(l));
+            if (newLabels.length > 0) {
+              await github.rest.issues.addLabels({
+                owner, repo, issue_number: num,
+                labels: newLabels
+              });
+            }
+
+            // ── Post triage comment ──
+            const isEdit = context.payload.action === 'edited';
+            if (!isEdit) {
+              const typeLabels  = [...toAdd].filter(l => l.startsWith('type:'));
+              const areaLabels  = [...toAdd].filter(l => ['frontend','backend','ml/ai','data'].includes(l));
+              const diffLabel   = [...toAdd].find(l => ['easy','medium','hard'].includes(l)) || 'easy';
+
+              const diffEmoji   = diffLabel === 'easy' ? '🟢' : diffLabel === 'medium' ? '🟡' : '🔴';
+              const typeStr     = typeLabels.length ? typeLabels.join(', ') : '(to be confirmed)';
+              const areaStr     = areaLabels.length ? areaLabels.join(', ') : '(to be confirmed)';
+
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: num,
+                body: [
+                  `## 🤖 Auto-Triage Complete`,
+                  ``,
+                  `| Field | Value |`,
+                  `|-------|-------|`,
+                  `| **Type** | ${typeStr} |`,
+                  `| **Area** | ${areaStr} |`,
+                  `| **Difficulty** | ${diffEmoji} ${diffLabel} |`,
+                  `| **Status** | \`needs-triage\` — awaiting mentor review |`,
+                  ``,
+                  `> ⚠️ Labels are auto-assigned and may be adjusted by a mentor.`,
+                  ``,
+                  `---`,
+                  `### 👋 Want to work on this?`,
+                  `Comment one of the following:`,
+                  `> \`I would like to work on this\``,
+                  ``,
+                  `A mentor will assign it to you once this issue is approved for GSSoC (gets the \`gssoc:approved\` label).`,
+                  ``,
+                  `📖 Read [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md) before starting.`,
+                ].join('\n')
+              });
+            }
