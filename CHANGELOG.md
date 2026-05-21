@@ -25,3 +25,6 @@ The format is based on [keep a changelog](https://keepchangelog.com/en/1.1.0)
 
 ### Removed 
 - Removed dependency on external backend server by directly reusing modal classes 
+
+
+
