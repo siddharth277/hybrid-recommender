@@ -85,7 +85,7 @@ jobs:
             }
 
             // ── GSSoC tag ──
-            if (!existingLabels.includes('gssoc26')) toAdd.add('gssoc26');
+            if (!existingLabels.includes('gssoc:approved')) toAdd.add('gssoc:approved');
 
             // ── Apply all labels ──
             const newLabels = [...toAdd].filter(l => !existingLabels.includes(l));
