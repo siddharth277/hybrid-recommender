@@ -471,6 +471,50 @@ def search_items(
     _set_cache_headers(response, "MISS")
     return payload
 
+
+@app.get("/api/autocomplete")
+def autocomplete_products(
+    q: str = Query("", min_length=1),
+    limit: int = Query(5, ge=1, le=10),
+):
+    """
+    Return top matching product titles for autocomplete suggestions.
+    """
+
+    sb = get_supabase()
+    query = q.strip()
+
+    if not query:
+        return {"suggestions": []}
+
+    try:
+        result = (
+            sb.table('products')
+            .select('title')
+            .ilike('title', f'%{query}%')
+            .limit(limit)
+            .execute()
+        )
+
+        suggestions = []
+        seen = set()
+
+        for item in result.data or []:
+            title = item.get('title', '').strip()
+
+            if title and title.lower() not in seen:
+                suggestions.append(title)
+                seen.add(title.lower())
+
+        return {
+            "suggestions": suggestions[:limit]
+        }
+
+    except Exception as e:
+        logger.error(f"Autocomplete error: {e}")
+        raise HTTPException(status_code=500, detail="Autocomplete failed")
+
+
 # ── Upload + Import ─────────────────────────────────────────────────
 
 @app.post("/api/upload")

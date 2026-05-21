@@ -33,6 +33,7 @@ const state = {
     hasMore: true,
     searchTimer: null,
     searchResults: [],
+    autocompleteResults: [],
     selectedSearchIdx: -1,
     isAuthSignUp: false,
     modelReady: false,
@@ -314,30 +315,30 @@ async function handleSearch(query) {
 
 function renderSearchDropdown(results, query) {
     if (!results.length) {
-        els.searchDropdown.innerHTML = `
-            <div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">
-                No results for "${query}"
-            </div>`;
-        els.searchDropdown.classList.add('active');
+        closeSearchDropdown();
         return;
     }
 
-    els.searchDropdown.innerHTML = results.map((r, i) => `
-        <div class="search-result ${i === state.selectedSearchIdx ? 'active' : ''}"
-             data-title="${r.title}" data-idx="${i}">
-            <span style="font-size:20px;">${categoryIcon(r.category)}</span>
-            <div class="search-result__info">
-                <div class="search-result__title">${highlightMatch(r.title, query)}</div>
-                <div class="search-result__meta">
-                    ★ ${(r.rating || 0).toFixed(1)}
-                    ${r.category ? `· <span class="search-result__category">${r.category}</span>` : ''}
+    els.searchDropdown.innerHTML = results
+        .map((title, index) => `
+            <div
+                class="search-result ${index === state.selectedSearchIdx ? 'active' : ''}"
+                data-title="${title}"
+                data-idx="${index}"
+            >
+                <span class="search-result__icon">🔍</span>
+                <div class="search-result__info">
+                    <div class="search-result__title">
+                        ${highlightMatch(title, query)}
+                    </div>
                 </div>
             </div>
-        </div>
-    `).join('');
+        `)
+        .join('');
+
     els.searchDropdown.classList.add('active');
 
-    // Click handlers
+    // Click suggestion
     els.searchDropdown.querySelectorAll('.search-result').forEach((el) => {
         el.addEventListener('click', () => {
             const title = el.dataset.title;
@@ -354,37 +355,105 @@ function highlightMatch(text, query) {
 
 function selectSearchResult(title) {
     els.searchInput.value = title;
+
     closeSearchDropdown();
+
+    // Trigger actual search
     loadSearchResults(title);
+
+    // Optional recommendation refresh
     loadRecommendations(title);
 }
+
 
 function closeSearchDropdown() {
     els.searchDropdown.classList.remove('active');
     state.selectedSearchIdx = -1;
 }
 
+// Close dropdown when clicking outside
+window.addEventListener('click', (e) => {
+    const container = document.getElementById('search-container');
+
+    if (!container.contains(e.target)) {
+        closeSearchDropdown();
+    }
+});
+
 function handleSearchKeydown(e) {
-    const results = state.searchResults;
-    if (!results.length || !els.searchDropdown.classList.contains('active')) return;
+    const results = state.autocompleteResults;
+
+    if (!results.length || !els.searchDropdown.classList.contains('active')) {
+        return;
+    }
 
     if (e.key === 'ArrowDown') {
         e.preventDefault();
-        state.selectedSearchIdx = Math.min(state.selectedSearchIdx + 1, results.length - 1);
+
+        state.selectedSearchIdx = Math.min(
+            state.selectedSearchIdx + 1,
+            results.length - 1
+        );
+
         renderSearchDropdown(results, els.searchInput.value);
-    } else if (e.key === 'ArrowUp') {
+    }
+
+    else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        state.selectedSearchIdx = Math.max(state.selectedSearchIdx - 1, -1);
+
+        state.selectedSearchIdx = Math.max(
+            state.selectedSearchIdx - 1,
+            0
+        );
+
         renderSearchDropdown(results, els.searchInput.value);
-    } else if (e.key === 'Enter' && state.selectedSearchIdx >= 0) {
+    }
+
+    else if (e.key === 'Enter') {
         e.preventDefault();
-        selectSearchResult(results[state.selectedSearchIdx].title);
-    } else if (e.key === 'Escape') {
+
+        if (state.selectedSearchIdx >= 0) {
+            const selected = results[state.selectedSearchIdx];
+            selectSearchResult(selected);
+        }
+    }
+
+    else if (e.key === 'Escape') {
         closeSearchDropdown();
     }
 }
 
+
+
+function handleSearch(query) {
+    if (!query || query.trim().length < 1) {
+        closeSearchDropdown();
+        return;
+    }
+
+    clearTimeout(state.searchTimer);
+
+    // 300ms debounce
+    state.searchTimer = setTimeout(async () => {
+        try {
+            const data = await API.get(
+                `/api/autocomplete?q=${encodeURIComponent(query)}&limit=5`
+            );
+
+            state.autocompleteResults = data.suggestions || [];
+            state.selectedSearchIdx = -1;
+
+            renderSearchDropdown(state.autocompleteResults, query);
+        } catch (err) {
+            console.error('Autocomplete failed:', err);
+            closeSearchDropdown();
+        }
+    }, 300);
+}
+
+// ── Product Loading ─────────────────────────────────────────────────
 // ── Product Loading (Infinite Scroll) ───────────────────────────────
+
 async function loadProducts(append = false) {
     // Guard: prevent duplicate requests and loading past end
     if (state.isLoading) return;
