@@ -66,7 +66,11 @@ jobs:
             msg += '3. Once approved, this PR will be auto-merged\n\n';
             msg += 'Please respond to review comments within 48 hours.';
 
-            await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: msg });
+            try {
+              await github.rest.issues.createComment({ owner, repo, issue_number: prNumber, body: msg });
+            } catch(e) {
+              console.log('Could not post welcome comment:', e.message);
+            }
 
             try {
               await github.rest.pulls.requestReviewers({ owner, repo, pull_number: prNumber, reviewers: ['leonagoel'] });
@@ -104,16 +108,25 @@ jobs:
                 merge_method: 'squash',
                 commit_title: context.payload.pull_request.title + ' (#' + prNumber + ')'
               });
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: prNumber,
-                body: 'Merged! Approved by @' + reviewer + '. Points will reflect at next 4 AM IST leaderboard refresh.'
-              });
+              console.log('PR merged successfully!');
+              try {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: prNumber,
+                  body: 'Merged! Approved by @' + reviewer + '. Points will reflect at next 4 AM IST leaderboard refresh.'
+                });
+              } catch(e) {
+                console.log('Could not post merge comment:', e.message);
+              }
             } catch(e) {
               console.log('Merge failed:', e.message);
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: prNumber,
-                body: 'Approved by @' + reviewer + '! Could not auto-merge: ' + e.message + '\n\nPlease merge manually.'
-              });
+              try {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: prNumber,
+                  body: 'Approved by @' + reviewer + '! Could not auto-merge: ' + e.message + '\n\nPlease merge manually.'
+                });
+              } catch(e2) {
+                console.log('Could not post failure comment:', e2.message);
+              }
             }
 
   notify-rebase-on-merge:
@@ -135,14 +148,20 @@ jobs:
 
             for (const pr of openPRs) {
               if (pr.number === mergedPR.number) continue;
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: pr.number,
-                body: 'Main branch was just updated!\n\n'
-                  + 'PR #' + mergedPR.number + ' was just merged into main.\n\n'
-                  + 'Please rebase your branch to avoid conflicts:\n\n'
-                  + 'git fetch origin\n'
-                  + 'git rebase origin/main\n'
-                  + 'git push --force-with-lease\n\n'
-                  + 'Keeping your branch up to date prevents merge conflicts.'
-              });
+              try {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: pr.number,
+                  body: '⚠️ Main branch was just updated!\n\n'
+                    + 'PR #' + mergedPR.number + ' ("' + mergedPR.title + '") was just merged into `main`.\n\n'
+                    + 'Please rebase your branch to avoid conflicts:\n'
+                    + '```\n'
+                    + 'git fetch origin\n'
+                    + 'git rebase origin/main\n'
+                    + 'git push --force-with-lease\n'
+                    + '```\n\n'
+                    + 'Keeping your branch up to date prevents merge conflicts. 🚀'
+                });
+              } catch(e) {
+                console.log('Could not notify PR #' + pr.number + ':', e.message);
+              }
             }
