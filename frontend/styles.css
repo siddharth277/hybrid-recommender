@@ -1615,25 +1615,48 @@ main {
 .compare-label input {
     cursor: pointer;
 }
-/* Empty state for recommendations */
-.empty-recommendations {
+/* Empty search results */
+.empty-search-results {
+    grid-column: 1 / -1;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 48px 24px;
+    padding: 60px 24px;
     color: var(--text-muted);
-    gap: 12px;
+    gap: 16px;
 }
 
-.empty-recommendations .empty-icon {
-    font-size: 48px;
-    opacity: 0.7;
+.empty-search-illustration svg {
+    width: 100px;
+    height: 100px;
+    stroke: currentColor;
+    stroke-width: 1.2;
+    fill: none;
+    opacity: 0.6;
 }
 
-.empty-recommendations p {
+.empty-search-message {
+    font-size: 16px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+#clear-search-btn {
+    margin-top: 8px;
+    padding: 8px 24px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: var(--radius-full);
+    cursor: pointer;
     font-size: 14px;
-    max-width: 280px;
-    line-height: 1.5;
+    transition: var(--transition);
+}
+
+#clear-search-btn:hover {
+    background: var(--accent-light);
+    transform: translateY(-1px);
 }
