@@ -92,6 +92,14 @@ jobs:
             const repo = context.repo.repo;
             const reviewer = context.payload.review.user.login;
 
+            // ── Fetch fresh PR state ──
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+
+            console.log('PR state:', pr.state);
+            console.log('PR mergeable:', pr.mergeable);
+            console.log('PR mergeable_state:', pr.mergeable_state);
+            console.log('PR draft:', pr.draft);
+
             try {
               await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name: 'status:review-needed' });
             } catch(e) {}
@@ -100,19 +108,43 @@ jobs:
               await github.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels: ['status:approved'] });
             } catch(e) {}
 
+            // ── Guard checks ──
+            if (pr.state !== 'open') {
+              console.log('PR is not open, skipping merge.');
+              return;
+            }
+
+            if (pr.draft) {
+              console.log('PR is a draft, skipping merge.');
+              return;
+            }
+
+            if (pr.mergeable === false) {
+              console.log('PR has conflicts, cannot merge.');
+              try {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: prNumber,
+                  body: '✅ Approved by @' + reviewer + ' but **cannot auto-merge** — this PR has conflicts.\n\nPlease resolve conflicts and push again.'
+                });
+              } catch(e) {}
+              return;
+            }
+
+            // ── Attempt merge ──
             try {
               await github.rest.pulls.merge({
                 owner,
                 repo,
                 pull_number: prNumber,
                 merge_method: 'squash',
-                commit_title: context.payload.pull_request.title + ' (#' + prNumber + ')'
+                commit_title: pr.title + ' (#' + prNumber + ')',
+                commit_message: ''
               });
-              console.log('PR merged successfully!');
+              console.log('PR #' + prNumber + ' merged successfully!');
               try {
                 await github.rest.issues.createComment({
                   owner, repo, issue_number: prNumber,
-                  body: 'Merged! Approved by @' + reviewer + '. Points will reflect at next 4 AM IST leaderboard refresh.'
+                  body: '🎉 Merged! Approved by @' + reviewer + '.\n\nPoints will reflect on the GSSoC leaderboard at next **4 AM IST** refresh.\n\n🏆 https://gssoc.girlscript.org/leaderboard'
                 });
               } catch(e) {
                 console.log('Could not post merge comment:', e.message);
@@ -122,7 +154,7 @@ jobs:
               try {
                 await github.rest.issues.createComment({
                   owner, repo, issue_number: prNumber,
-                  body: 'Approved by @' + reviewer + '! Could not auto-merge: ' + e.message + '\n\nPlease merge manually.'
+                  body: '✅ Approved by @' + reviewer + '! Could not auto-merge: `' + e.message + '`\n\nPlease click **Merge pull request** manually.'
                 });
               } catch(e2) {
                 console.log('Could not post failure comment:', e2.message);
@@ -151,7 +183,7 @@ jobs:
               try {
                 await github.rest.issues.createComment({
                   owner, repo, issue_number: pr.number,
-                  body: '⚠️ Main branch was just updated!\n\n'
+                  body: '⚠️ **Main branch was just updated!**\n\n'
                     + 'PR #' + mergedPR.number + ' ("' + mergedPR.title + '") was just merged into `main`.\n\n'
                     + 'Please rebase your branch to avoid conflicts:\n'
                     + '```\n'
