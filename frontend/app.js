@@ -1390,20 +1390,455 @@ function setupScrollObserver() {
   });
   bindBuildModelsHandler(() => setState({ modelsBuilt: true }));
 
-  // 5. Search & browse
-  initSearch();
-  loadCategories();
-  loadProducts(1);
+    els.searchHistory.classList.add('active');
 
-  // 6. Recommendation weight sliders
-  initWeightSliders();
+    // Click history item
+    els.searchHistory.querySelectorAll('.search-history__item')
+        .forEach((el) => {
+            el.addEventListener('click', () => {
+                const query = el.dataset.query;
+                els.searchInput.value = query;
+                loadSearchResults(query);
+                handleSearch(query);
+            });
+        });
 
-  // 7. React to state changes
-  subscribe('recentlyViewed', renderRecentlyViewed);
+    // Clear history
+    const clearBtn = document.getElementById('clear-history-btn');
 
-  console.log('[HybridRec] ✓ All modules loaded.');
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            state.searchHistory = [];
+            renderSearchHistory();
+        });
+    }
 }
 
-document.readyState === 'loading'
-  ? document.addEventListener('DOMContentLoaded', bootstrap)
-  : bootstrap();
+function renderSearchDropdown(results, query) {
+    if (!results.length) {
+        els.searchDropdown.innerHTML = `
+            <div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">
+                No results for "${query}"
+            </div>`;
+        els.searchDropdown.classList.add('active');
+        return;
+    }
+
+    els.searchDropdown.innerHTML = results.map((r, i) => `
+        <div class="search-result ${i === state.selectedSearchIdx ? 'active' : ''}"
+             data-title="${r.title}" data-idx="${i}">
+            <span style="font-size:20px;">${categoryIcon(r.category)}</span>
+            <div class="search-result__info">
+                <div class="search-result__title">${highlightMatch(r.title, query)}</div>
+                <div class="search-result__meta">
+                    ★ ${(r.rating || 0).toFixed(1)}
+                    ${r.category ? `· <span class="search-result__category">${r.category}</span>` : ''}
+                </div>
+            </div>
+        </div>
+    `).join('');
+    els.searchDropdown.classList.add('active');
+
+    // Click handlers
+    els.searchDropdown.querySelectorAll('.search-result').forEach((el) => {
+        el.addEventListener('click', () => {
+            const title = el.dataset.title;
+            selectSearchResult(title);
+        });
+    });
+}
+
+function highlightMatch(text, query) {
+    if (!query) return text;
+    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    return text.replace(regex, '<strong>$1</strong>');
+}
+
+function selectSearchResult(title) {
+    addToSearchHistory(title);
+    els.searchInput.value = title;
+    closeSearchDropdown();
+    loadSearchResults(title);
+    loadRecommendations(title);
+}
+
+function closeSearchDropdown() {
+    els.searchDropdown.classList.remove('active');
+    state.selectedSearchIdx = -1;
+}
+
+function handleSearchKeydown(e) {
+    const results = state.searchResults;
+    if (!results.length || !els.searchDropdown.classList.contains('active')) return;
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        state.selectedSearchIdx = Math.min(state.selectedSearchIdx + 1, results.length - 1);
+        renderSearchDropdown(results, els.searchInput.value);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        state.selectedSearchIdx = Math.max(state.selectedSearchIdx - 1, -1);
+        renderSearchDropdown(results, els.searchInput.value);
+    } else if (e.key === 'Enter' && state.selectedSearchIdx >= 0) {
+        e.preventDefault();
+        selectSearchResult(results[state.selectedSearchIdx].title);
+    } else if (e.key === 'Escape') {
+        closeSearchDropdown();
+    }
+}
+
+// ── Product Loading ─────────────────────────────────────────────────
+async function loadProducts(append = false) {
+    if (!append) {
+        els.productGrid.innerHTML = '';
+        els.skeletonLoader.hidden = false;
+        state.page = 1;
+    }
+
+    try {
+        const data = await API.get(`/api/search?q=&limit=${state.perPage}&offset=${(state.page - 1) * state.perPage}`);
+        const products = data.results || [];
+        state.totalProducts = data.total || products.length;
+
+        if (!append) {
+            els.skeletonLoader.hidden = true;
+        }
+
+        renderProducts(products, append);
+        const visibleCount =
+    state.selectedCategory === 'All Categories'
+        ? products.length
+        : products.filter(
+            p => p.category === state.selectedCategory
+        ).length;
+
+els.productCount.textContent = `${visibleCount} products loaded`;
+
+        // Show load more if there might be more
+        els.loadMoreContainer.hidden = products.length < state.perPage;
+    } catch (err) {
+        els.skeletonLoader.hidden = true;
+        toast('Failed to load products', 'error');
+    }
+}
+
+async function loadSearchResults(query) {
+    els.productGrid.innerHTML = '';
+    els.skeletonLoader.hidden = false;
+    els.productsTitle.textContent = `Results for "${query}"`;
+
+    try {
+        const data = await API.get(`/api/search?q=${encodeURIComponent(query)}&limit=40`);
+        const products = data.results || [];
+        els.skeletonLoader.hidden = true;
+        els.productCount.textContent = `${products.length} results`;
+        state.products = [];
+        renderProducts(products, false);
+        els.loadMoreContainer.hidden = true;
+    } catch {
+        els.skeletonLoader.hidden = true;
+        toast('Search failed', 'error');
+    }
+}
+
+function renderProducts(products, append) {
+    if (!append) state.products = [];
+
+    const fragment = document.createDocumentFragment();
+    const filteredProducts =
+    state.selectedCategory === 'All Categories'
+        ? products
+        : products.filter(
+            p => p.category === state.selectedCategory
+        );
+    filteredProducts.forEach((p, i) => {
+        state.products.push(p);
+        const card = document.createElement('div');
+        card.className = 'product-card';
+        card.style.animationDelay = `${i * 50}ms`;
+        card.innerHTML = `
+            <div class="product-card__image">
+                ${categoryIcon(p.category)}
+            </div>
+            <div class="product-card__body">
+                ${p.category ? `<span class="product-card__category">${p.category}</span>` : ''}
+                <h3 class="product-card__title">${p.title || 'Untitled'}</h3>
+                <p class="product-card__desc">${p.description || 'No description available.'}</p>
+                <div class="product-card__footer">
+                    <div class="product-card__rating">
+                        <div class="star-rating">${renderStars(p.rating || 0)}</div>
+                        <span class="rating-value">${(p.rating || 0).toFixed(1)}</span>
+                    </div>
+                    ${sentimentBadge(p.avg_sentiment || 0)}
+                </div>
+            </div>
+            <div class="product-card__actions">
+                <button class="btn--add-cart" data-title="${p.title}">
+                    Get Recommendations
+                </button>
+            </div>
+        `;
+
+        // Click → get recommendations
+        card.querySelector('.btn--add-cart').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const title = e.target.dataset.title;
+            loadRecommendations(title);
+            toast(`Finding recommendations for "${title.substring(0, 40)}..."`, 'info');
+        });
+
+        card.addEventListener('click', () => {
+            loadRecommendations(p.title);
+        });
+
+        fragment.appendChild(card);
+    });
+
+    els.productGrid.appendChild(fragment);
+}
+
+// ── Recommendations ─────────────────────────────────────────────────
+async function loadRecommendations(title) {
+    if (!state.modelReady) {
+        toast('Build models first to get recommendations', 'info');
+        return;
+    }
+
+    els.recsSection.hidden = false;
+    els.recsStrip.innerHTML = '<div style="padding:16px;color:var(--text-muted);font-size:13px;">Loading recommendations...</div>';
+
+    try {
+        const data = await API.get(`/api/recommend/${encodeURIComponent(title)}?top_n=12`);
+        const recs = data.recommendations || [];
+
+        if (!recs.length) {
+            els.recsStrip.innerHTML = '<div style="padding:16px;color:var(--text-muted);">No recommendations found.</div>';
+            return;
+        }
+
+        els.recsStrip.innerHTML = recs.map((r) => `
+            <div class="rec-card" data-title="${r.title}">
+                <div class="rec-card__title">${r.title}</div>
+                <div class="rec-card__rating">
+                    <div class="star-rating">${renderStars(r.rating || 0)}</div>
+                    <span class="rating-value">${(r.rating || 0).toFixed(1)}</span>
+                </div>
+                <div class="rec-card__score">
+                    Score: ${(r.hybrid_score || 0).toFixed(3)}
+                    · Content: ${(r.content_score || 0).toFixed(2)}
+                    · Collab: ${(r.collab_score || 0).toFixed(2)}
+                </div>
+            </div>
+        `).join('');
+
+        // Click to chain recommendations
+        els.recsStrip.querySelectorAll('.rec-card').forEach((card) => {
+            card.addEventListener('click', () => {
+                loadRecommendations(card.dataset.title);
+            });
+        });
+
+        // Scroll to recs
+        els.recsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch {
+        els.recsStrip.innerHTML = '<div style="padding:16px;color:var(--text-muted);">Could not load recommendations.</div>';
+    }
+}
+
+// ── Upload & Build ──────────────────────────────────────────────────
+async function handleUpload(file) {
+    toast(`Uploading ${file.name}...`, 'info');
+    const form = new FormData();
+    form.append('file', file);
+
+    try {
+        const res = await fetch('/api/upload', { method: 'POST', body: form });
+        if (!res.ok) throw new Error('Upload failed');
+        const data = await res.json();
+        toast(`Imported ${data.imported?.toLocaleString()} products!`, 'success');
+        checkStatus();
+    } catch (err) {
+        toast('Upload failed: ' + err.message, 'error');
+    }
+}
+
+async function handleBuild() {
+    els.buildBtn.disabled = true;
+    els.buildBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin">
+            <path d="M21 12a9 9 0 11-6.219-8.56"/>
+        </svg>
+        Building...`;
+
+    try {
+        const data = await API.post('/api/build', {});
+        state.modelReady = true;
+        toast(`Models built in ${data.build_time_seconds}s — ${data.items?.toLocaleString()} items`, 'success');
+        updateStatus('ready', `Ready — ${data.items?.toLocaleString()} products`);
+        loadProducts();
+    } catch (err) {
+        toast('Build failed: ' + err.message, 'error');
+    } finally {
+        els.buildBtn.disabled = false;
+        els.buildBtn.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+            Build Models`;
+    }
+}
+
+// ── Status ──────────────────────────────────────────────────────────
+async function checkStatus() {
+    try {
+        const data = await API.get('/api/status');
+        const count = data.product_count || 0;
+
+        if (data.model_ready) {
+            state.modelReady = true;
+            updateStatus('ready', `Ready — ${count.toLocaleString()} products`);
+            loadProducts();
+        } else if (count > 0) {
+            updateStatus('has-data', `${count.toLocaleString()} products — Build models to start`);
+            loadProducts();
+        } else {
+            updateStatus('', 'No data — Upload a CSV or JSON dataset');
+            els.skeletonLoader.hidden = true;
+            els.productGrid.innerHTML = `
+                <div style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--text-muted);">
+                    <div style="font-size:48px;margin-bottom:16px;">📦</div>
+                    <div style="font-size:16px;font-weight:600;margin-bottom:8px;color:var(--text-secondary);">No products yet</div>
+                    <div style="font-size:13px;">Upload a CSV or JSON dataset to get started</div>
+                </div>`;
+        }
+    } catch {
+        updateStatus('error', 'Backend offline');
+    }
+}
+
+function updateStatus(cls, text) {
+    els.statusDot.className = `status-dot ${cls}`;
+    els.statusText.textContent = text;
+}
+
+// ── Weight Controls ─────────────────────────────────────────────────
+async function handleWeightChange() {
+    const a = parseInt(els.weightAlpha.value);
+    const b = parseInt(els.weightBeta.value);
+    const g = parseInt(els.weightGamma.value);
+
+    try {
+        await API.put('/api/weights', { alpha: a / 100, beta: b / 100, gamma: g / 100 });
+    } catch {}
+}
+
+// ── Event Listeners ─────────────────────────────────────────────────
+function bindEvents() {
+    // Search
+    els.searchInput.addEventListener('input', (e) => handleSearch(e.target.value));
+    els.searchInput.addEventListener('keydown', handleSearchKeydown);
+    els.searchInput.addEventListener('focus', () => {
+    if (els.searchInput.value) {
+        handleSearch(els.searchInput.value);
+    } else {
+        renderSearchHistory();
+    }
+});
+    els.categoryFilter.addEventListener('change', (e) => {
+    state.selectedCategory = e.target.value;
+
+    if (els.searchInput.value.trim()) {
+        loadSearchResults(els.searchInput.value);
+    } else {
+        loadProducts();
+    }
+});
+
+    // Close dropdown on outside click
+    document.addEventListener('click', (e) => {
+       if (!e.target.closest('.header__search')) {
+    closeSearchDropdown();
+    els.searchHistory.classList.remove('active');
+}
+});
+
+    // Auth
+    els.authBtn.addEventListener('click', () => {
+        if (state.isGuest) {
+            els.authModal.hidden = false;
+        } else {
+            // Logged in → sign out
+            sbClient.auth.signOut().then(() => {
+                state.user = null;
+                state.isGuest = true;
+                els.authLabel.textContent = 'Sign In';
+                toast('Signed out', 'info');
+                initAuth(); // Re-login as guest
+            });
+        }
+    });
+
+    els.authForm.addEventListener('submit', handleAuth);
+    els.authToggleBtn.addEventListener('click', toggleAuthMode);
+    els.modalClose.addEventListener('click', () => { els.authModal.hidden = true; });
+    els.authModal.addEventListener('click', (e) => {
+        if (e.target === els.authModal) els.authModal.hidden = true;
+    });
+
+    // Upload
+    els.uploadBtn.addEventListener('click', () => els.fileInput.click());
+    els.fileInput.addEventListener('change', (e) => {
+        if (e.target.files[0]) handleUpload(e.target.files[0]);
+        e.target.value = '';
+    });
+
+    // Build
+    els.buildBtn.addEventListener('click', handleBuild);
+
+    // Load more
+    els.loadMoreBtn.addEventListener('click', () => {
+        state.page++;
+        loadProducts(true);
+    });
+
+    // Weights
+    [els.weightAlpha, els.weightBeta, els.weightGamma].forEach((slider) => {
+        slider.addEventListener('change', handleWeightChange);
+    });
+}
+
+// ── CSS spin animation ──────────────────────────────────────────────
+const spinStyle = document.createElement('style');
+spinStyle.textContent = `@keyframes spin { to { transform: rotate(360deg); } } .spin { animation: spin 1s linear infinite; }`;
+document.head.appendChild(spinStyle);
+
+// ── Init ────────────────────────────────────────────────────────────
+async function init() {
+    bindEvents();
+    initTypeToSearch();
+
+    // Initialize Supabase client from backend config (no hardcoded keys)
+    await initSupabase();
+    loadCategories();
+    // Run auth and status independently — neither blocks the other
+    initAuth().catch((e) => console.warn('Auth error:', e));
+    checkStatus().catch((e) => console.warn('Status error:', e));
+}
+
+async function loadCategories() {
+    try {
+        const data = await API.get('/api/categories');
+        const categories = data.categories || [];
+
+        els.categoryFilter.innerHTML = `
+            <option value="All Categories">All Categories</option>
+            ${categories.map(cat => `
+                <option value="${cat}">${cat}</option>
+            `).join('')}
+        `;
+    } catch (err) {
+        console.error('Failed to load categories', err);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', init);
