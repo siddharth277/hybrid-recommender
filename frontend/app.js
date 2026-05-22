@@ -532,7 +532,7 @@ function handleSearchKeydown(e) {
 
 
 
-function handleSearch(query) {
+function handleAutocomplete(query) {
     if (!query || query.trim().length < 1) {
         closeSearchDropdown();
         return;
@@ -1167,10 +1167,10 @@ function populateCategoryFilter(products) {
 // ── Event Listeners ─────────────────────────────────────────────────
 function bindEvents() {
     // Search
-    els.searchInput.addEventListener('input', (e) => handleSearch(e.target.value));
+    els.searchInput.addEventListener('input', (e) => handleAutocomplete(e.target.value));
     els.searchInput.addEventListener('keydown', handleSearchKeydown);
     els.searchInput.addEventListener('focus', () => {
-        if (els.searchInput.value) handleSearch(els.searchInput.value);
+        if (els.searchInput.value) handleAutocomplete(els.searchInput.value);
     });
 
     // Close dropdown on outside click
