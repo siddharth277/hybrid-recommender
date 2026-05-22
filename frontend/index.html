@@ -49,6 +49,9 @@
                     <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
                 <input type="text" id="search-input" placeholder="Search products..." autocomplete="off" spellcheck="false">
+           <!-- Language toggle button: switches between English and Hindi search -->
+                <button id="lang-toggle" class="btn btn--ghost" onclick="toggleLanguage()">EN</button>
+                <span id="hindi-indicator" style="display:none; color: #888; font-size: 12px;">Searching in Hindi</span>
                 <span class="search-shortcut" id="search-shortcut">Press / to search</span>
                 <div class="search-dropdown" id="search-dropdown"></div>
                 <div class="search-history" id="search-history"></div>

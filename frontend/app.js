@@ -1897,3 +1897,22 @@ async function loadCategories() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', init);
+
+// ── Language Toggle ─────────────────────────────────────────────────
+let currentLang = 'EN';
+
+function toggleLanguage() {
+    currentLang = currentLang === 'EN' ? 'HI' : 'EN';
+    document.getElementById('lang-toggle').textContent = currentLang;
+    
+    if (currentLang === 'HI') {
+        document.getElementById('search-input').placeholder = 'हिंदी में खोजें...';
+        document.getElementById('hindi-indicator').style.display = 'inline';
+        document.getElementById('search-shortcut').style.display = 'none';
+    } else {
+        document.getElementById('search-input').placeholder = 'Search products...';
+        document.getElementById('hindi-indicator').style.display = 'none';
+        document.getElementById('search-shortcut').style.display = 'block';
+    }
+}

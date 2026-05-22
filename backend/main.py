@@ -7,10 +7,14 @@ import os
 import sys
 import io
 import time
+
 import logging
 import math
 from collections import deque, Counter
 from threading import Lock
+
+from datetime import datetime, timedelta
+import logging
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from fastapi import (
@@ -80,6 +84,10 @@ class EvaluationResponse(PydanticBase):
     results:   dict[str, ModeMetrics]
     run_id:    Optional[str] = None
 
+from hybrid_model import HybridRecommender, bayesian_rating
+from langdetect import detect
+from deep_translator import GoogleTranslator
+# Used langdetect for detection and deep-translator for translation
 # ── App ──────────────────────────────────────────────────────────────
 app = FastAPI(title="Hybrid Recommender API", version="3.0")
 
@@ -643,6 +651,9 @@ def search_items(
     q: str = "",
     limit: int = 8,
     offset: int = 0
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    accept_language: Optional[str] = None,
 ):
     """
     Search products using simple case‑insensitive title matching.
@@ -683,6 +694,32 @@ def search_items(
         query = q.strip()
 
         if query:
+    # Language detection: detects Hindi queries and translates to English
+
+    sb = get_supabase()
+    is_hindi = False
+    original_query = q.strip()
+
+    if original_query:
+        try:
+            lang = detect(original_query)
+            if lang == 'hi':
+                is_hindi = True
+                q = GoogleTranslator(source='hi', target='en').translate(original_query)
+               
+        except Exception as e:
+            logger.warning("Language detection failed: %s", e)
+
+    if q.strip():
+        try:
+            result = sb.rpc('search_products', {
+                'query_text': q.strip(),
+                'match_count': limit,
+                'offset_val': offset,
+            }).execute()
+            products = result.data or []
+        except Exception as e:
+            logger.warning("Full-text search failed for query '%s': %s", q.strip(), e)
             result = sb.table('products') \
                 .select('id, title, description, category, rating, avg_sentiment, review_count') \
                 .ilike('title', f'%{query}%') \
@@ -706,7 +743,6 @@ def search_items(
             results.append({
                 'id': p.get('id'),
                 'title': p.get('title', ''),
-                'description': str(p.get('description', ''))[:200],
                 'category': p.get('category', ''),
                 'rating': p.get('rating', 0.0),
                 'avg_sentiment': p.get('avg_sentiment', 0.0),
@@ -736,12 +772,26 @@ def search_items(
                 'rank': 0.0,
                 'image': p['image'],
             })
+    results = []
+    for p in products:
+        results.append({
+            'id': p.get('id'),
+            'title': p.get('title', ''),
+            'category': p.get('category', ''),
+            'rating': p.get('rating', 0.0),
+            'avg_sentiment': p.get('avg_sentiment', 0.0),
+            'review_count': p.get('review_count', 0),
+            'rank': p.get('rank', 0.0),
+        })
 
     payload = {
         "results": results,
         "total": len(results),
-        "query": q,
         "is_fallback": not bool(q.strip()),
+        "query": original_query,
+        "translated_query": q if is_hindi else None,
+        "is_hindi": is_hindi,
+        "is_fallback": not original_query,
     }
     _set_cached_response(cache_key, payload)
     _set_cache_headers(response, "MISS")
@@ -800,7 +850,6 @@ def autocomplete_products(
         return {
             "suggestions": suggestions[:limit]
         }
-
 
 # ── Upload + Import ─────────────────────────────────────────────────
 

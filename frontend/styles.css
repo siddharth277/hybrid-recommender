@@ -1626,6 +1626,53 @@ main {
     cursor: pointer;
     font-size: 12px;
 }
+    top: 0;
+    left: -150px;
+    width: 150px;
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.6),
+        transparent
+    );
+    animation: shimmer 1.2s infinite;
+}
+
+@keyframes shimmer {
+    100% {
+        transform: translateX(300px);
+    }
+}
+
+/* ── Language Toggle ─────────────────────────────────────────────── */
+#lang-toggle {
+    position: absolute;
+    right: 145px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-inverse);
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+#lang-toggle:hover {
+    background: rgba(255,255,255,0.25);
+}
+
+#hindi-indicator {
+    position: absolute;
+    right: 200px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 11px;
+    color: var(--accent);
+    white-space: nowrap;
+}
 
 
 #theme-toggle {
