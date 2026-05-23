@@ -43,6 +43,7 @@ function initThemeToggle() {
 }
 
 document.addEventListener('DOMContentLoaded', initThemeToggle);
+
 /**
  * HybridRec — Frontend Application v3
  * Supabase Auth + PostgreSQL FTS Search + Modern UI
@@ -144,6 +145,16 @@ const els = {
     sentimentFilter: $('sentiment-filter'),
     clearFiltersBtn: $('clear-filters'),
 };
+// ===== CONFIG=====
+const CONFIG = {
+  TOAST_DURATION_MS: 3500,
+  TOAST_EXIT_MS: 300,
+  SEARCH_DEBOUNCE_MS: 300,
+  SENTIMENT_POSITIVE: 0.05,
+  SENTIMENT_NEGATIVE: -0.05,
+  SEARCH_LIMIT: 5,
+  MAX_COMPARE_ITEMS: 20
+};
 
 function loadPreferences() {
     const saved = localStorage.getItem('userPreferences');
@@ -186,9 +197,9 @@ function toast(message, type = 'info') {
     setTimeout(() => {
         el.style.opacity = '0';
         el.style.transform = 'translateX(100%)';
-        el.style.transition = '300ms ease';
-        setTimeout(() => el.remove(), 300);
-    }, 3500);
+        el.style.transition = '${CONFIG.TOAST_EXIT_MS}ms ease';
+        setTimeout(() => el.remove(), CONFIG.TOAST_EXIT_MS);
+    }, CONFIG.TOAST_DURATION_MS);
 }
 
 function createSkeletonCard() {
@@ -230,8 +241,8 @@ function renderStars(rating) {
 }
 
 function sentimentBadge(score) {
-    if (score > 0.05) return '<span class="product-card__sentiment sentiment-positive">Positive</span>';
-    if (score < -0.05) return '<span class="product-card__sentiment sentiment-negative">Negative</span>';
+    if (score > CONFIG.SENTIMENT_POSITIVE) return '<span class="product-card__sentiment sentiment-positive">Positive</span>';
+    if (score < CONFIG.SENTIMENT_NEGATIVE) return '<span class="product-card__sentiment sentiment-negative">Negative</span>';
     return '<span class="product-card__sentiment sentiment-neutral">Neutral</span>';
 }
 
@@ -248,9 +259,9 @@ function applyFilters(products) {
 
         let sentiment = 'neutral';
 
-        if ((p.avg_sentiment || 0) > 0.05) {
+        if ((p.avg_sentiment || 0) > CONFIG.SENTIMENT_POSITIVE) {
             sentiment = 'positive';
-        } else if ((p.avg_sentiment || 0) < -0.05) {
+        } else if ((p.avg_sentiment || 0) < CONFIG.SENTIMENT_NEGATIVE) {
             sentiment = 'negative';
         }
 
@@ -573,7 +584,7 @@ function handleSearch(query) {
     state.searchTimer = setTimeout(async () => {
         try {
             const data = await API.get(
-                `/api/autocomplete?q=${encodeURIComponent(query)}&limit=5`
+                `/api/autocomplete?q=${encodeURIComponent(query)}&limit=${CONFIG.SEARCH_LIMIT}`
             );
 
             state.autocompleteResults = data.suggestions || [];
@@ -584,7 +595,7 @@ function handleSearch(query) {
             console.error('Autocomplete failed:', err);
             closeSearchDropdown();
         }
-    }, 300);
+    }, CONFIG.SEARCH_DEBOUNCE_MS);
 }
 
 // ── Product Loading ─────────────────────────────────────────────────
@@ -908,7 +919,7 @@ function renderProducts(products, append) {
                 e.stopPropagation();
                 const title = checkbox.dataset.title;
                 if (checkbox.checked) {
-                    if (state.heatmapSelected.length >= 20) {
+                    if (state.heatmapSelected.length >= CONFIG.MAX_COMPARE_ITEMS) {
                         checkbox.checked = false;
                         toast('Maximum 20 items for comparison', 'error');
                         return;
