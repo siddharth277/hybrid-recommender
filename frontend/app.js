@@ -1374,6 +1374,7 @@ function renderHeatmap(labels, matrix) {
 
 // ── Infinite Scroll (Intersection Observer) ─────────────────────────
 function setupScrollObserver() {
+    try{
     // Tear down any previous observer to avoid duplicates / leaks
     destroyScrollObserver();
 

@@ -1,5 +1,5 @@
 /* ╔══════════════════════════════════════╗
-   ║   HybridRec — Design System v3      ║
+   ║   HybridRec — Design System v3       ║
    ║   Modern, Minimal, Amazon-like       ║
    ╚══════════════════════════════════════╝ */
 
@@ -347,6 +347,13 @@ body {
     padding: 8px 16px;
     transition: var(--transition);
     white-space: nowrap;
+
+
+    transition: all 0.2s ease-in-out;
+}
+
+.btn:hover {
+    transform: scale(1.02);
 }
 
 .btn--primary {
@@ -356,7 +363,8 @@ body {
 
 .btn--primary:hover {
     background: var(--accent-hover);
-    transform: translateY(-1px);
+    /* transform: translateY(-1px); */
+    transform: scale(1.02);
     box-shadow: var(--shadow-md);
 }
 
@@ -370,6 +378,9 @@ body {
     border-color: var(--accent);
     color: var(--accent-hover);
     background: var(--accent-light);
+
+    transform: scale(1.02);
+    box-shadow: var(--shadow-sm);
 }
 
 .btn--ghost {
@@ -846,7 +857,8 @@ body {
 
 .btn--add-cart:hover {
     background: var(--accent-hover);
-    transform: translateY(-1px);
+    /* transform: translateY(-1px); */
+    transform: scale(1.02);
 }
 
 /* ── Skeleton Loader ─────────────────────────────────────────────── */
@@ -1006,7 +1018,8 @@ body {
 
 .compare-fab:hover {
     background: var(--primary-hover);
-    transform: translateX(-50%) translateY(-2px);
+    /* transform: translateX(-50%) translateY(-2px); */
+    transform: translateX(-50%) scale(1.02);
     box-shadow: var(--shadow-xl), 0 0 0 6px rgba(37, 99, 235, 0.25);
 }
 
@@ -1322,7 +1335,8 @@ body {
 }
 
 .btn--clear-search:hover {
-    transform: translateY(-2px);
+    /* transform: translateY(-2px); */
+    transform: scale(1.02);
     box-shadow: var(--shadow-lg);
 }
 
@@ -1615,259 +1629,82 @@ main {
     font-size: 12px;
 }
 
-/* =============================================================================
-   benchmarking.css â€” Model Performance Dashboard Styles
-   Add these styles to frontend/styles.css (append at the bottom)
-   ============================================================================= */
 
-/* â”€â”€ CSS custom properties (colour tokens for chart bars) â”€â”€ */
-:root {
-  --color-precision: #4f8ef7;
-  --color-recall:    #34c97e;
-  --color-ndcg:      #f5a623;
-  --color-border:    #e2e8f0;
-  --color-text:      #1a202c;
-  --color-text-muted: #718096;
-  --color-bg-panel:  #ffffff;
-  --color-bg-header: #f7fafc;
+#theme-toggle {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-inverse);
+    cursor: pointer;
+    font-size: 16px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    transition: all 0.2s ease-in-out;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-precision: #63a3ff;
-    --color-recall:    #4ade80;
-    --color-ndcg:      #fbbf24;
-    --color-border:    #2d3748;
-    --color-text:      #f7fafc;
-    --color-text-muted: #a0aec0;
-    --color-bg-panel:  #1a202c;
-    --color-bg-header: #2d3748;
-  }
+/* #theme-toggle:hover {
+    transform: scale(1.02);
+    
+} */
+#theme-toggle:hover {
+    transform: scale(1.02);
+    transition: all 0.2s ease-in-out;
+    background: rgba(255,255,255,0.1);
+    border-color: var(--accent);
+    box-shadow: var(--shadow-sm);
 }
 
-/* â”€â”€ Panel container â”€â”€ */
-.benchmark-panel {
-  margin: 1.5rem 0;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
-  background: var(--color-bg-panel);
-  overflow: hidden;
+.modal__close:hover {
+    transform: scale(1.02);
+    color: var(--danger);
+    transition: all 0.2s ease-in-out;
 }
 
-/* â”€â”€ Collapsible header â”€â”€ */
-.benchmark-panel__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.875rem 1.25rem;
-  background: var(--color-bg-header);
-  cursor: pointer;
-  user-select: none;
-  border-bottom: 1px solid var(--color-border);
-  transition: background 0.15s ease;
+.clear-history-btn:hover {
+    transform: scale(1.02);
+    opacity: 0.9;
 }
 
-.benchmark-panel__header:hover {
-  background: var(--color-border);
+
+.back-to-top:hover {
+    transform: scale(1.02);
 }
 
-.benchmark-panel__title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--color-text);
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none !important;
 }
 
-.benchmark-panel__chevron {
-  font-size: 1.1rem;
-  color: var(--color-text-muted);
-  transition: transform 0.2s ease;
+
+
+/* ── Wishlist Button ───────────────────────────── */
+
+.wishlist-btn {
+    position: relative;
+    overflow: hidden;
 }
 
-.benchmark-panel__header[aria-expanded="true"] .benchmark-panel__chevron {
-  transform: rotate(180deg);
+.wishlist-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        120deg,
+        transparent,
+        rgba(245, 158, 11, 0.15),
+        transparent
+    );
+
+    transform: translateX(-100%);
+    transition: transform 0.5s ease;
 }
 
-/* â”€â”€ Panel body â”€â”€ */
-.benchmark-panel__body {
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-/* â”€â”€ Controls row â”€â”€ */
-.benchmark-controls {
-  display: flex;
-  align-items: flex-end;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.benchmark-controls__group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.benchmark-controls__label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--color-text-muted);
-}
-
-.benchmark-controls__select {
-  padding: 0.4rem 0.65rem;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  background: var(--color-bg-panel);
-  color: var(--color-text);
-  font-size: 0.875rem;
-  cursor: pointer;
-}
-
-/* â”€â”€ Chart area â”€â”€ */
-.benchmark-chart {
-  position: relative;
-  min-height: 160px;
-  border: 1px solid var(--color-border);
-  border-radius: 8px;
-  padding: 1rem;
-  background: var(--color-bg-header);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.benchmark-chart.is-loading {
-  opacity: 0.6;
-  pointer-events: none;
-}
-
-.benchmark-chart__empty,
-.benchmark-chart__error {
-  text-align: center;
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
-  margin: 0;
-}
-
-.benchmark-chart__error {
-  color: #e53e3e;
-}
-
-.benchmark-chart__loading {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
-}
-
-/* â”€â”€ Spinner â”€â”€ */
-.spinner {
-  display: inline-block;
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--color-border);
-  border-top-color: var(--color-precision);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-/* â”€â”€ Legend â”€â”€ */
-.benchmark-legend {
-  display: flex;
-  gap: 1.25rem;
-  flex-wrap: wrap;
-}
-
-.benchmark-legend__item {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.8rem;
-  color: var(--color-text-muted);
-}
-
-.benchmark-legend__item::before {
-  content: '';
-  display: inline-block;
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
-}
-
-.benchmark-legend__item--precision::before { background: var(--color-precision); }
-.benchmark-legend__item--recall::before    { background: var(--color-recall); }
-.benchmark-legend__item--ndcg::before      { background: var(--color-ndcg); }
-
-/* â”€â”€ History section â”€â”€ */
-.benchmark-history__title {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  margin: 0 0 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-/* â”€â”€ History table â”€â”€ */
-.bench-hist-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.8rem;
-  color: var(--color-text);
-}
-
-.bench-hist-table th,
-.bench-hist-table td {
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  border-bottom: 1px solid var(--color-border);
-  white-space: nowrap;
-}
-
-.bench-hist-table th {
-  font-weight: 600;
-  color: var(--color-text-muted);
-  background: var(--color-bg-header);
-  font-size: 0.72rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.bench-hist-table tr:last-child td {
-  border-bottom: none;
-}
-
-.bench-hist-table tr:hover td {
-  background: var(--color-bg-header);
-}
-
-.bench-hist__precision { color: var(--color-precision); font-weight: 600; }
-.bench-hist__recall    { color: var(--color-recall);    font-weight: 600; }
-.bench-hist__ndcg      { color: var(--color-ndcg);      font-weight: 600; }
-
-/* â”€â”€ Responsive â”€â”€ */
-@media (max-width: 600px) {
-  .benchmark-controls {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .bench-hist-table {
-    display: block;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
+.wishlist-btn:hover::before {
+    transform: translateX(100%);
 }
