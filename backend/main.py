@@ -42,11 +42,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from src.data.db import get_supabase, get_supabase_admin
-from data_adapter import adapt_data, read_file
-from nlp_engine import batch_analyze, aggregate_sentiment_by_item
-from content_model import ContentRecommender
-from collaborative_model import CollaborativeRecommender
-from hybrid_model import HybridRecommender
+from src.data.data_adapter import adapt_data, read_file
+from src.model.nlp_engine import batch_analyze, aggregate_sentiment_by_item
+from src.model.content_model import ContentRecommender
+from src.model.collaborative_model import CollaborativeRecommender
+from src.model.hybrid_model import HybridRecommender
 
 from functools import lru_cache
 
@@ -60,6 +60,7 @@ CACHE_CONTROL_VALUE = f"public, max-age={CACHE_TTL_SECONDS}"
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(5 * 1024 * 1024)))
 MAX_SEARCH_QUERY_LENGTH = 120
 _response_cache: dict = {}
+ADMIN_API_TOKEN_ENV = "ADMIN_API_TOKEN"
 _rate_limit_buckets: dict = {}
 _rate_limit_lock = Lock()
 _cache_lock = Lock()
@@ -132,7 +133,7 @@ def _extract_bearer_token(value: str | None) -> str:
 
 
 def _require_admin_access(request: Request) -> None:
-    expected_token = os.environ.get("ADMIN_API_TOKEN", "").strip()
+    expected_token = os.environ.get(ADMIN_API_TOKEN_ENV, "").strip()
     if not expected_token:
         return
 
