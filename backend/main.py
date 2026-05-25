@@ -775,39 +775,126 @@ def create_purchase(data: PurchaseCreate):
     }).execute()
     _clear_response_cache()
     return {"purchase": result.data}
+# ── Trending Products ───────────────────────────────────────────────
 
-# ── Export Dataset ──────────────────────────────────────────────────
+TRENDING_CACHE = {
+    "data": None,
+    "timestamp": None,
+}
 
-@app.get("/api/export/dataset")
-def export_dataset(columns: Optional[str] = None):
-    """Export currently loaded dataset as CSV."""
 
-    item_df = models.get("item_df")
+@app.get("/api/trending")
+def get_trending_products(days: int = 7, limit: int = 10):
+    """
+    Get trending products based on recent interactions.
+    """
 
-    if item_df is None or item_df.empty:
-        raise HTTPException(400, "No dataset loaded.")
+    # Cache for 1 hour
+    now = datetime.utcnow()
 
-    df = item_df.copy()
+    if (
+        TRENDING_CACHE["data"] is not None and
+        TRENDING_CACHE["timestamp"] is not None and
+        (now - TRENDING_CACHE["timestamp"]).seconds < 3600
+    ):
+        return TRENDING_CACHE["data"]
 
-    # Optional column filtering
-    if columns:
-        selected_cols = [c.strip() for c in columns.split(",")]
-        valid_cols = [c for c in selected_cols if c in df.columns]
+    sb = get_supabase()
 
-        if valid_cols:
-            df = df[valid_cols]
+    cutoff_date = (now - timedelta(days=days)).isoformat()
 
-    stream = StringIO()
-    df.to_csv(stream, index=False)
-    stream.seek(0)
+    result = sb.table("purchases") \
+        .select("""
+            product_id,
+            rating,
+            purchased_at,
+            products (
+                id,
+                title,
+                category,
+                rating,
+                avg_sentiment,
+                review_count
+            )
+        """) \
+        .gte("purchased_at", cutoff_date) \
+        .execute()
 
-    return StreamingResponse(
-        iter([stream.getvalue()]),
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": 'attachment; filename="dataset.csv"'
-        }
+    rows = result.data or []
+
+    if not rows:
+        return {"results": []}
+
+    from collections import defaultdict
+
+    stats = defaultdict(lambda: {
+        "count": 0,
+        "ratings": [],
+        "product": None,
+    })
+
+    for row in rows:
+        product = row.get("products")
+
+        if not product:
+            continue
+
+        pid = product["id"]
+
+        stats[pid]["count"] += 1
+        stats[pid]["ratings"].append(row.get("rating", 0))
+        stats[pid]["product"] = product
+
+    # Bayesian ranking
+    ranked = []
+
+    global_avg = sum(
+        sum(v["ratings"]) / max(len(v["ratings"]), 1)
+        for v in stats.values()
+    ) / max(len(stats), 1)
+
+    m = 5  # minimum votes threshold
+
+    for pid, data in stats.items():
+        count = data["count"]
+        avg_rating = (
+            sum(data["ratings"]) / max(len(data["ratings"]), 1)
+        )
+
+        bayesian_rating = (
+            (count / (count + m)) * avg_rating
+            + (m / (count + m)) * global_avg
+        )
+
+        score = bayesian_rating * count
+
+        ranked.append({
+            "id": data["product"]["id"],
+            "title": data["product"]["title"],
+            "category": data["product"].get("category", ""),
+            "rating": data["product"].get("rating", 0),
+            "avg_sentiment": data["product"].get("avg_sentiment", 0),
+            "review_count": data["product"].get("review_count", 0),
+            "interaction_count": count,
+            "bayesian_rating": round(bayesian_rating, 3),
+            "trending_score": round(score, 3),
+        })
+
+    ranked.sort(
+        key=lambda x: x["trending_score"],
+        reverse=True
     )
+
+    response = {
+        "results": ranked[:limit],
+        "days": days,
+        "limit": limit,
+    }
+
+    TRENDING_CACHE["data"] = response
+    TRENDING_CACHE["timestamp"] = now
+
+    return response
 
 # ── Feedback ──────────────────────────────────────────────────────────
 @app.post("/api/feedback")
