@@ -904,7 +904,10 @@ TRENDING_CACHE = {
 
 
 @app.get("/api/trending")
-def get_trending_products(days: int = 7, limit: int = 10):
+def get_trending_products(
+    days: int = Query(7, ge=1, le=365),
+    limit: int = Query(10, ge=1, le=100),
+):
     """
     Get trending products based on recent interactions.
     """
