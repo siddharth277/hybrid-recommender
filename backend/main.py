@@ -1041,17 +1041,8 @@ def get_recommendations(
     top_n: int = 10,
     explain: bool = Query(False),
     target_catalog: Optional[str] = Query(None),
+    strategy: Optional[str] = Query(None), 
 ):
-    rate_limited = _apply_rate_limit(
-        request,
-        response,
-        scope="recommend",
-        limit_env="RATE_LIMIT_RECOMMEND_PER_MIN",
-        default_limit=20,
-    )
-    if rate_limited is not None:
-        return rate_limited
-
     if not models["ready"]:
         raise HTTPException(400, "Models not built. Build first via /api/build.")
     query_title = title or item_title
@@ -1067,6 +1058,11 @@ def get_recommendations(
     recs = models["hybrid"].recommend(
         query_title, top_n=top_n, explain=explain, target_catalog=target_catalog
     )
+  
+    if not recs and strategy == "popularity" and models["collab"]:
+        recs = models["collab"]._popularity_fallback(top_n)
+    
+    
     if not recs:
         raise HTTPException(404, "Item not found or no recommendations.")
 
