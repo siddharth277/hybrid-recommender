@@ -18,8 +18,9 @@ class UserTower(nn.Module):
         self.user_embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
         self.fc1 = nn.Linear(embedding_dim, 256)
         self.fc2 = nn.Linear(256, embedding_dim)
-        
-    forward = lambda self, user_ids: self.fc2(F.relu(self.fc1(self.user_embedding(user_ids))))
+
+    def forward(self, user_ids):
+        return self.fc2(F.relu(self.fc1(self.user_embedding(user_ids))))
 
 
 class ItemTower(nn.Module):
@@ -29,8 +30,9 @@ class ItemTower(nn.Module):
         self.item_embedding = nn.Embedding(vocab_size, embedding_dim, padding_idx=0)
         self.fc1 = nn.Linear(embedding_dim, 256)
         self.fc2 = nn.Linear(256, embedding_dim)
-        
-    forward = lambda self, item_ids: self.fc2(F.relu(self.fc1(self.item_embedding(item_ids))))
+
+    def forward(self, item_ids):
+        return self.fc2(F.relu(self.fc1(self.item_embedding(item_ids))))
 
 
 class TwoTowerRetrievalEngine:
