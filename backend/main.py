@@ -12,23 +12,10 @@ import time
 import logging
 import math
 import secrets
+import re
 import json
 from redis import Redis
 from redis.exceptions import RedisError
-
-# Initialise Redis client; falls back to None if unavailable so the
-# in-memory cache is used instead.
-try:
-    _redis_client: Redis | None = Redis(
-        host=os.environ.get("REDIS_HOST", "localhost"),
-        port=int(os.environ.get("REDIS_PORT", 6379)),
-        db=int(os.environ.get("REDIS_DB", 0)),
-        decode_responses=True,
-        socket_connect_timeout=2,
-    )
-    _redis_client.ping()
-except Exception:
-    _redis_client = None
 
 try:
     import bleach
@@ -82,8 +69,6 @@ from collaborative_model import CollaborativeRecommender
 from hybrid_model import HybridRecommender
 
 # ── App ──────────────────────────────────────────────────────────────
-logger = logging.getLogger(__name__)
-
 app = FastAPI(title="Hybrid Recommender API", version="3.0")
 
 @app.on_event("startup")
@@ -161,20 +146,20 @@ def _cache_key(*parts: Any) -> str:
 
 
 def _get_cached_response(key: str):
-    global _cache_hits, _cache_misses
+    try:
+        cached = _redis_client.get(key)
 
-    if _redis_client is not None:
-        try:
-            cached = _redis_client.get(key)
-            if cached is not None:
-                return json.loads(cached)
-        except (RedisError, json.JSONDecodeError):
-            pass
+        if cached is not None:
+            return json.loads(cached)
+
+    except (RedisError, json.JSONDecodeError):
+        pass
 
     with _cache_lock:
         cached = _response_cache.get(key)
 
         if not cached:
+            global _cache_misses
             _cache_misses += 1
             return None
 
@@ -182,19 +167,22 @@ def _get_cached_response(key: str):
 
         if expires_at <= time.time():
             _response_cache.pop(key, None)
+            global _cache_misses
             _cache_misses += 1
             return None
-
+        global _cache_hits
         _cache_hits += 1
         return value
 
 
 def _set_cached_response(key: str, value: Any) -> None:
-    if _redis_client is not None:
-        try:
-            _redis_client.setex(key, CACHE_TTL_SECONDS, json.dumps(value))
-        except (RedisError, TypeError):
-            pass
+    with _cache_lock:
+        _response_cache[key] = (time.time() + CACHE_TTL_SECONDS, value)
+        # track misses -> when we set a value it was previously a miss for the next requests
+        # metric updated in _get_cached_response when read.
+
+    except (RedisError, TypeError):
+        pass
 
     with _cache_lock:
         _response_cache[key] = (
@@ -1145,11 +1133,12 @@ def _validate_upload_bytes(filename: str, ext: str, contents: bytes) -> None:
 @app.post("/api/upload")
 async def upload_dataset(
     file: UploadFile = File(...),
-    _csrf: None = Depends(csrf_header_dep),
-    admin=Depends(_require_admin_access),
+    admin=Depends(_require_admin_access)
 ):
     """Upload a CSV or JSON dataset and import into Supabase."""
     import math
+    _csrf: None = Depends(csrf_header_dep),
+):
     filename = file.filename or "data.csv"
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ('.csv', '.json'):
