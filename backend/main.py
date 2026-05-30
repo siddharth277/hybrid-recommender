@@ -814,7 +814,8 @@ def search_items(
 
     is_fuzzy_fallback = False
 
-
+    # ── FIX 1: products is only assigned MOCK_PRODUCTS inside the except
+    # block, so real DB results are never silently discarded.
     try:
         sb = get_supabase()
 
@@ -826,16 +827,16 @@ def search_items(
                     'match_count': limit,
                     'offset_val': offset,
                 }).execute()
-    
+
                 products = result.data or []
-    
+
             except Exception as e:
                 logger.warning(
                     "Full-text search failed for query '%s': %s",
                     query.strip(),
                     e
                 )
-    
+
                 # Fallback: LIKE search
                 result = sb.table('products') \
                     .select('id, title, description, category, rating, avg_sentiment, review_count, reviews') \
@@ -843,38 +844,39 @@ def search_items(
                     .order('rating', desc=True) \
                     .limit(limit) \
                     .execute()
-    
+
                 products = result.data or []
-    
+
             # 2. Fuzzy fallback
             if len(products) < 3:
                 is_fuzzy_fallback = True
-    
+
                 fuzzy_res = sb.rpc('fuzzy_search_products', {
                     'q': query,
                     'threshold': 0.3
                 }).execute()
-    
+
                 products = fuzzy_res.data or []
-    
+
         else:
             query_builder = sb.table('products').select(
                 'id, title, description, category, rating, avg_sentiment, review_count, metadata'
             )
-    
+
             if sort == "rating":
                 query_builder = query_builder.order('rating', desc=True)
             else:
                 query_builder = query_builder.order('rating', desc=True) \
                 .order('review_count', desc=True)
-    
+
             result = query_builder.limit(limit).offset(offset).execute()
             products = result.data or []
-    
-    except Exception as e:
-        logger.warning("Search fallback to mock products: %s", e)
 
-    products = MOCK_PRODUCTS
+    except Exception as e:
+        # ── FIX 1: MOCK_PRODUCTS is now correctly scoped inside the except
+        # block — it only runs when the entire DB interaction fails.
+        logger.warning("Search fallback to mock products: %s", e)
+        products = MOCK_PRODUCTS
 
     if query:
         query_lower = query.lower()
@@ -889,113 +891,70 @@ def search_items(
         for p in products:
             p['rank'] = 0.0
 
-
-    # Format response
-    results = []
-    
-    for p in products:
-    
-        raw_sentiment = p.get('avg_sentiment', 0.0)
-        reviews = p.get('reviews', [])
-    
-        # Newly added products may still have the default
-        # sentiment value before the NLP batch pipeline runs.
-        # Recompute dynamically so the UI never shows misleading 0.0.
-        if raw_sentiment == 0.0 and reviews:
-            try:
-                from nlp_engine import compute_product_sentiment
-    
-                computed_sentiment = compute_product_sentiment(reviews)
-    
-                sentiment_value = (
-                    computed_sentiment
-                    if computed_sentiment is not None
-                    else "N/A"
-                )
-    
-            except Exception:
-                sentiment_value = "N/A"
-    
-        else:
-            sentiment_value = (
-                raw_sentiment
-                if raw_sentiment != 0.0
-                else "N/A"
-            )
-    
-        results.append({
-            'id': p.get('id'),
-            'title': p.get('title', ''),
-            'description': str(p.get('description', ''))[:200],
-            'category': p.get('category', ''),
-            'rating': p.get('rating', 0.0),
-            'avg_sentiment': sentiment_value,
-            'review_count': p.get('review_count', 0),
-            'rank': p.get('rank', 0.0),
-        })
-    
-    
+    # ── FIX 2: helper to extract price (used for sorting and formatting)
     def _product_price(product):
         metadata = product.get('metadata') or {}
-    
+
         raw_price = (
             product.get('price')
             if product.get('price') is not None
             else metadata.get('price')
         )
-    
+
         try:
             return float(raw_price or 0)
-    
+
         except (TypeError, ValueError):
             return 0.0
-    
-    
+
+    # Apply sorting to the raw products list before formatting
     if sort == "price-low":
         products = sorted(products, key=_product_price)
-    
+
     elif sort == "price-high":
         products = sorted(products, key=_product_price, reverse=True)
-    
+
     elif sort == "rating":
         products = sorted(
             products,
             key=lambda p: float(p.get('rating') or 0),
             reverse=True
         )
-    
-    
+
+    # ── FIX 2: Single formatting pass (with price) that runs after sorting.
+    # The redundant first pass that produced results without price has been
+    # removed entirely.
     results = []
-    
+
     for p in products:
-    
+
         raw_sentiment = p.get('avg_sentiment', 0.0)
         reviews = p.get('reviews', [])
-    
+
         if raw_sentiment == 0.0 and reviews:
             try:
                 from nlp_engine import compute_product_sentiment
-    
+
                 computed_sentiment = compute_product_sentiment(reviews)
-    
+
                 sentiment_value = (
                     computed_sentiment
                     if computed_sentiment is not None
                     else "N/A"
                 )
-    
+
             except Exception:
                 sentiment_value = "N/A"
-    
+
         else:
             sentiment_value = (
                 raw_sentiment
                 if raw_sentiment != 0.0
                 else "N/A"
             )
-    
+
         price = _product_price(p)
-    
+
         results.append({
             'id': p.get('id'),
             'title': p.get('title', ''),
@@ -1007,10 +966,10 @@ def search_items(
             'review_count': p.get('review_count', 0),
             'rank': p.get('rank', 0.0),
         })
-    
-    
+
+
     result_count = len(results)
-    
+
     payload = {
         "results": results,
         "count": result_count,
@@ -1019,10 +978,10 @@ def search_items(
         "sort": sort,
         "is_fallback": not query or is_fuzzy_fallback,
     }
-    
+
     _set_cached_response(cache_key, payload)
     _set_cache_headers(response, "MISS")
-    
+
     return payload
 
 
@@ -1183,7 +1142,7 @@ async def upload_dataset(
                 title = str(row.get('title', 'Unknown')).strip()
                 if not title or title == 'nan' or title == 'Unknown':
                     continue
-# --- sanitize HTML tags ---
+                # --- sanitize HTML tags ---
                 title = bleach.clean(title, strip=True)[:500]
 
                 description = str(row.get('description', ''))
@@ -1314,7 +1273,7 @@ def build_models(
         "items": len(item_df),
         "has_collaborative": collab_model is not None,
         "build_time_seconds": build_time,
-	"precomputed_recommendations": precomputed_count,
+        "precomputed_recommendations": precomputed_count,
     }
 
 @app.post("/api/train/federated")
@@ -1429,7 +1388,7 @@ def get_recommendations(
     if rate_limited is not None:
         return rate_limited
 
-# ----- EDGE CASES SAFE CHECK -----
+    # ----- EDGE CASES SAFE CHECK -----
     # Agar model ready nahi hai ya database bilkul khali hai
     if not models or "ready" not in models or not models["ready"]:
         raise HTTPException(status_code=400, detail="Models not built or dynamic dataset is empty.")
@@ -1870,12 +1829,6 @@ def update_weights(
 def list_items(page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100)):
     sb = get_supabase()
     offset = (page - 1) * limit
-    result = sb.table('products') \
-        .select('id, title, description, category, rating, avg_sentiment, review_count, reviews') \
-        .order('rating', desc=True) \
-        .range(offset, offset + limit - 1) \
-        .execute()
-
     result = sb.table('products').select('id, title, description, category, rating, avg_sentiment, review_count').order('rating', desc=True).range(offset, offset + limit - 1).execute()
     count_result = sb.table('products').select('id', count='exact').limit(0).execute()
     total = count_result.count or 0
