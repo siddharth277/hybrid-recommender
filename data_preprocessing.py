@@ -94,10 +94,9 @@ def preprocess_sentiment_data(data: Union[str, Path, pd.DataFrame] = "datasets/C
     categorical_cols = ['gender', 'age_group', 'region', 
                        'product_category', 'purchase_channel', 
                        'platform', 'sentiment']
-    le = LabelEncoder()
     for col in categorical_cols:
         if col in df.columns:
-            df[col] = le.fit_transform(df[col].astype(str))
+            df[col] = LabelEncoder().fit_transform(df[col].astype(str))
 
     scaler = MinMaxScaler()
     df['rating_normalized'] = scaler.fit_transform(
