@@ -380,9 +380,7 @@ class HybridRecommender:
         sentiment_scores = self._normalize_scores(sentiment_raws)
 
         kg_scores = []
-        t
         if self.kg_model:
-            l
             kg_recs = self.kg_model.recommend(title, top_n=top_n * 3)
            
             kg_map = {
@@ -398,7 +396,13 @@ class HybridRecommender:
         else:
             kg_scores = [0.0] * len(items)
 
-        
+        # 5. Resolve active weights for this request
+        candidate_titles = [it['title'] for it in items]
+        a, b, g = self._get_active_weights(
+            self.alpha, self.beta, self.gamma,
+            user_id=user_id,
+            candidate_titles=candidate_titles,
+        )
 
         # 6. Compute hybrid score with capped popularity boost to protect [0, 1] constraint
         results = []
