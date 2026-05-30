@@ -34,7 +34,8 @@ class HybridRecommender:
                  alpha=0.4, beta=0.35, gamma=0.25,
                  normalization='minmax', weight_matrix=None,
                  use_causal_debiasing=False, causal_lambda=0.5, causal_clip=5.0,
-                 causal_config=None, model_kwargs=None):
+                 causal_config=None, model_kwargs=None,
+                 kg_model=None, delta=0.0):
         """
         content_model:        ContentRecommender instance
         collab_model:         CollaborativeRecommender instance (optional)
