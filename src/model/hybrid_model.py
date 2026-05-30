@@ -11,7 +11,6 @@ Improvements:
 - Optional causal debiasing via Inverse Propensity Scoring (IPS)
 """
 import math
-
 import numpy as np
 
 from src.model.causal_config import CausalConfig
@@ -58,13 +57,17 @@ class HybridRecommender:
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
-        self.kg_model = kg_model
-        self.delta = delta
+        
+        # Note: kg_model and delta are not in __init__ signature but present in original code
+        # self.kg_model = kg_model
+        # self.delta = delta
+        self.kg_model = None
+        self.delta = 0.0
 
         # Expose model kwargs explicitly as structural configuration dictionaries
         # Legacy compatibility: no explicit model_kwargs parameter in signature,
         # so initialize empty dict to avoid NameError.
-        self.model_kwargs = {}
+        self.model_kwargs = model_kwargs or {}
 
         # Apply exposed parameters if dynamic updates are supplied on runtime triggers
         if self.collab_model and self.model_kwargs:
@@ -77,15 +80,10 @@ class HybridRecommender:
             if use_implicit is not None and hasattr(self.collab_model, 'use_implicit'):
                 self.collab_model.use_implicit = use_implicit
 
-        # # normalization: 'minmax' or 'zscore'
+        # normalization: 'minmax' or 'zscore'
         self.normalization = normalization
         # dynamic weighting matrix (dict of context -> (alpha,beta,gamma))
         self.weight_matrix = weight_matrix or {}
-
-        # Fairness defaults
-        self.fairness_enabled = False
-        self.fairness_key = 'category'
-        self.fairness_max_share = 1.0
 
         # Causal debiasing — prefer CausalConfig when provided; fall back to raw params.
         # This keeps the old float-based API fully working while adding structured config.
@@ -110,7 +108,7 @@ class HybridRecommender:
             )
             self._causal_config = None
 
-        # Initialize fairness parameters
+        # Initialize fairness parameters (single canonical assignment)
         self.fairness_enabled = False
         self.fairness_key = 'category'
         self.fairness_max_share = 1.0
@@ -334,6 +332,9 @@ class HybridRecommender:
         Get hybrid recommendations for a given item title.
         Returns list of dicts sorted by hybrid_score.
         """
+        # Resolve dynamic weights based on context
+        a, b, g = self._get_active_weights(self.alpha, self.beta, self.gamma, user_id)
+
         # 1. Content-based scores
         content_recs = self.content_model.recommend(title, top_n=top_n * 3, target_catalog=target_catalog)
         all_titles = {r['title'] for r in content_recs}
@@ -380,9 +381,7 @@ class HybridRecommender:
         sentiment_scores = self._normalize_scores(sentiment_raws)
 
         kg_scores = []
-        t
         if self.kg_model:
-            l
             kg_recs = self.kg_model.recommend(title, top_n=top_n * 3)
            
             kg_map = {
@@ -394,11 +393,8 @@ class HybridRecommender:
                 kg_scores.append(kg_map.get(item['title'], 0.0))
 
             kg_scores = self._normalize_scores(kg_scores)
-
         else:
             kg_scores = [0.0] * len(items)
-
-        
 
         # 6. Compute hybrid score with capped popularity boost to protect [0, 1] constraint
         results = []
@@ -666,51 +662,51 @@ class HybridRecommender:
                 'top_reviews': [],
             })
         return results
+
     def _diversity_rerank(self, results, top_n, diversity=0.0, serendipity=0.0):
-            """
-            Re-ranks results to reduce filter bubbles.
+        """
+        Re-ranks results to reduce filter bubbles.
 
-            Args:
-                results: list of recommendation dicts sorted by hybrid_score
-                top_n: number of final results to return
-                diversity: 0.0 = no diversity, 1.0 = max category variety
-                serendipity: 0.0 = no surprises, 1.0 = more random/unexpected items
+        Args:
+            results: list of recommendation dicts sorted by hybrid_score
+            top_n: number of final results to return
+            diversity: 0.0 = no diversity, 1.0 = max category variety
+            serendipity: 0.0 = no surprises, 1.0 = more random/unexpected items
 
-            Returns:
-                Re-ranked list of recommendations
-            """
-            if not results:
-                return results
+        Returns:
+            Re-ranked list of recommendations
+        """
+        if not results:
+            return results
 
-            if diversity == 0.0 and serendipity == 0.0:
-                return results[:top_n]
+        if diversity == 0.0 and serendipity == 0.0:
+            return results[:top_n]
 
-            selected = []
-            remaining = results.copy()
-            seen_categories = []
+        selected = []
+        remaining = results.copy()
+        seen_categories = []
 
-            while len(selected) < top_n and remaining:
-                best = None
-                best_score = -1
+        while len(selected) < top_n and remaining:
+            best = None
+            best_score = -1
 
-                for item in remaining:
-                    score = item['hybrid_score']
-                    category = item.get('category', 'unknown')
+            for item in remaining:
+                score = item['hybrid_score']
+                category = item.get('category', 'unknown')
 
-                    times_seen = seen_categories.count(category)
-                    diversity_penalty = diversity * times_seen * 0.2
-                    score = score - diversity_penalty
+                times_seen = seen_categories.count(category)
+                diversity_penalty = diversity * times_seen * 0.2
+                score = score - diversity_penalty
 
-                    surprise_bonus = serendipity * np.random.uniform(0, 0.3)
-                    score = score + surprise_bonus
+                surprise_bonus = serendipity * np.random.uniform(0, 0.3)
+                score = score + surprise_bonus
 
-                    if score > best_score:
-                        best_score = score
-                        best = item
+                if score > best_score:
+                    best_score = score
+                    best = item
 
-                selected.append(best)
-                remaining.remove(best)
-                seen_categories.append(best.get('category', 'unknown'))
+            selected.append(best)
+            remaining.remove(best)
+            seen_categories.append(best.get('category', 'unknown'))
 
-            return selected
-    
+        return selected
