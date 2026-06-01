@@ -34,7 +34,7 @@ class HybridRecommender:
                  alpha=0.4, beta=0.35, gamma=0.25,
                  normalization='minmax', weight_matrix=None,
                  use_causal_debiasing=False, causal_lambda=0.5, causal_clip=5.0,
-                 causal_config=None):
+                 causal_config=None, model_kwargs=None):
         """
         content_model:        ContentRecommender instance
         collab_model:         CollaborativeRecommender instance (optional)
@@ -73,7 +73,7 @@ class HybridRecommender:
             if use_implicit is not None and hasattr(self.collab_model, 'use_implicit'):
                 self.collab_model.use_implicit = use_implicit
 
-        # # normalization: 'minmax' or 'zscore'
+        # normalization: 'minmax' or 'zscore'
         self.normalization = normalization
         # dynamic weighting matrix (dict of context -> (alpha,beta,gamma))
         self.weight_matrix = weight_matrix or {}
@@ -100,6 +100,11 @@ class HybridRecommender:
                 else None
             )
             self._causal_config = None
+
+        # Initialize fairness parameters (single canonical assignment)
+        self.fairness_enabled = False
+        self.fairness_key = 'category'
+        self.fairness_max_share = 1.0
 
         # Build sentiment + rating lookups
         self._sentiment_map = {}
