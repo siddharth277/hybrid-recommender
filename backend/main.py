@@ -1988,11 +1988,10 @@ def get_trending_products(
 ):
     """
     Get trending products based on recent interactions.
-    """
-    global TRENDING_CACHE
+    now = datetime.utcnow()
 
     # Cache for 1 hour
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     cache_key = (days, limit)
     if isinstance(TRENDING_CACHE, dict) and "data" in TRENDING_CACHE and TRENDING_CACHE["data"] is None:
