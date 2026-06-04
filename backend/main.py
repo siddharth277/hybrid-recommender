@@ -156,26 +156,10 @@ _rate_limit_buckets: dict = {}
 _rate_limit_lock = Lock()
 _cache_lock = Lock()
 
-# ── Cross-process model version coordination ─────────────────────────────────
-# After each successful /api/build or model promotion the API writes this key
-# to Redis so that Celery workers in separate processes can detect when a new
-# model is available and rebuild their local copy without requiring a restart.
-REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
-REDIS_MODEL_VERSION_KEY = "hybrid_recommender:model_version"
-
-
-def _publish_model_version(version: str) -> None:
-    """Write the current model version to Redis for worker coordination."""
-    try:
-        r = Redis.from_url(REDIS_URL, socket_connect_timeout=1)
-        r.set(REDIS_MODEL_VERSION_KEY, version)
-        logger.info("Published model version %s to Redis.", version)
-    except Exception as exc:
-        logger.warning(
-            "Could not publish model version to Redis "
-            "(workers may serve stale models): %s", exc
-        )
-
+# Optional Redis client for distributed caching.  None when REDIS_URL is unset
+# or the connection cannot be established at startup; the in-process dict cache
+# is used as a fallback in both cases.
+_redis_client: Redis | None = None
 
 MOCK_PRODUCTS = [
     {
@@ -220,6 +204,37 @@ def _get_slow_response_threshold_ms() -> float:
 
 def _cache_key(*parts: Any) -> str:
     return ":".join(str(part).strip().lower() for part in parts)
+
+
+def _recommendation_cache_key(
+    title: str,
+    top_n: int = 10,
+    explain: bool = False,
+    user_id: str = "",
+    target_catalog: str = "",
+    model_version: str = "",
+    strategy: str = "",
+) -> str:
+    """Single authoritative cache key for recommendation responses.
+
+    Both the precomputation path (_precompute_recommendation_cache) and
+    the request-serving path (get_recommendations) must use this function
+    so that precomputed entries are always retrievable by the API.
+
+    All optional parameters default to '' so that a plain item lookup
+    produces the same key whether called from precomputation or from the
+    API handler with all optional query params absent.
+    """
+    return _cache_key(
+        "recommend",
+        title,
+        top_n,
+        explain,
+        user_id or "",
+        target_catalog or "",
+        model_version or "",
+        strategy or "",
+    )
 
 
 def _get_cached_response(key: str):
@@ -359,7 +374,7 @@ def _precompute_recommendation_cache(
     item_df = models["item_df"]
 
     for title in item_df["title"].dropna().astype(str).unique():
-        cache_key = _cache_key("recommend", title, top_n, explain, "")
+        cache_key = _recommendation_cache_key(title, top_n, explain)
 
         recs = models["hybrid"].recommend(title, top_n=top_n, explain=explain)
 
@@ -508,6 +523,11 @@ def _require_admin_access(request: Request) -> None:
 
 _admin_access_dep = _require_admin_access
 
+
+
+def _admin_access_dep(request: Request) -> None:
+    """FastAPI dependency wrapper around _require_admin_access."""
+    _require_admin_access(request)
 
 
 def _admin_access_dep(request: Request) -> None:
@@ -1648,8 +1668,7 @@ def get_recommendations(
 
         selected_models = MODEL_REGISTRY[model_version]
 
-    cache_key = _cache_key(
-        "recommend",
+    cache_key = _recommendation_cache_key(
         query_title,
         top_n,
         explain,
