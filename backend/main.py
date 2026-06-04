@@ -20,12 +20,13 @@ from redis.exceptions import RedisError
 try:
     import bleach
 except ModuleNotFoundError:
+    import html
     class bleach:
         @staticmethod
         def clean(value, strip=True):
             if not strip:
                 return str(value)
-            return re.sub(r"<[^>]*>", "", str(value))
+            return html.escape(str(value))
 
 from collections import deque, Counter
 from threading import Lock
