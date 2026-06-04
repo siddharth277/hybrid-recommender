@@ -63,10 +63,7 @@ class HybridRecommender:
         self.alpha = alpha
         self.beta = beta
         self.gamma = gamma
-        self.fairness_enabled = False
-        self.fairness_key = "category"
-        self.fairness_max_share = 1.0
-
+        
         self.kg_model = kg_model
         self.delta = delta
 
@@ -91,10 +88,6 @@ class HybridRecommender:
         # dynamic weighting matrix (dict of context -> (alpha,beta,gamma))
         self.weight_matrix = weight_matrix or {}
 
-        # Fairness defaults
-        self.fairness_enabled = False
-        self.fairness_key = 'category'
-        self.fairness_max_share = 1.0
 
         # Causal debiasing — prefer CausalConfig when provided; fall back to raw params.
         # This keeps the old float-based API fully working while adding structured config.
