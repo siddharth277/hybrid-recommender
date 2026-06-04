@@ -82,6 +82,7 @@ from src.model.collaborative_model import CollaborativeRecommender
 from src.model.hybrid_model import HybridRecommender
 from src.model.issue_triage import triage_issue
 from src.model.federated_learning import train_federated_collaborative_model
+from src.api.response_utils import success_response, error_response
 
 from functools import lru_cache
 
@@ -153,6 +154,15 @@ _rate_limit_buckets: dict = {}
 _rate_limit_lock = Lock()
 _cache_lock = Lock()
 
+_redis_client = None
+_redis_url = os.environ.get("REDIS_URL")
+if _redis_url:
+    try:
+        _redis_client = Redis.from_url(_redis_url, socket_connect_timeout=1.0)
+    except Exception:
+        pass
+
+
 MOCK_PRODUCTS = [
     {
         "id": 1,
@@ -201,12 +211,14 @@ def _cache_key(*parts: Any) -> str:
 def _get_cached_response(key: str):
     global _cache_hits, _cache_misses   # Move globals to the top
 
-    try:
-        cached = _redis_client.get(key)
-        if cached is not None:
-            return json.loads(cached)
-    except (RedisError, json.JSONDecodeError):
-        pass
+    if _redis_client is not None:
+        try:
+            cached = _redis_client.get(key)
+            if cached is not None:
+                return json.loads(cached)
+        except (RedisError, json.JSONDecodeError):
+            pass
+
 
     with _cache_lock:
         cached = _response_cache.get(key)
@@ -472,6 +484,9 @@ def _require_admin_access(request: Request) -> None:
     )
     if not provided_token or not secrets.compare_digest(provided_token, expected_token):
         raise HTTPException(status_code=401, detail="Admin token required.")
+
+_admin_access_dep = _require_admin_access
+
 
 
 CORS_ORIGINS_ENV = "CORS_ORIGINS"
@@ -1548,22 +1563,50 @@ def get_recommendations(
 # ----- EDGE CASES SAFE CHECK -----
     # Agar model ready nahi hai ya database bilkul khali hai
     if not models or "ready" not in models or not models["ready"]:
-        raise HTTPException(status_code=400, detail="Models not built or dynamic dataset is empty.")
+        return JSONResponse(
+            status_code=400,
+            content=error_response(
+                message="Models not built or dynamic dataset is empty.",
+                model_name="hybrid",
+                detail="Models not built or dynamic dataset is empty."
+            )
+        )
     # ---------------------------------
     query_title = title or item_title
     if not query_title:
-        raise HTTPException(422, "Query parameter 'title' is required.")
+        return JSONResponse(
+            status_code=422,
+            content=error_response(
+                message="Query parameter 'title' is required.",
+                model_name="hybrid",
+                detail="Query parameter 'title' is required."
+            )
+        )
     selected_models = models
 
     if model_version == "staging":
         if not STAGING_MODEL_VERSION:
-            raise HTTPException(404, "No staging model available.")
+            return JSONResponse(
+                status_code=404,
+                content=error_response(
+                    message="No staging model available.",
+                    model_name="hybrid",
+                    detail="No staging model available."
+                )
+            )
 
         selected_models = MODEL_REGISTRY[STAGING_MODEL_VERSION]
 
     elif model_version:
         if model_version not in MODEL_REGISTRY:
-            raise HTTPException(404, "Requested model version not found.")
+            return JSONResponse(
+                status_code=404,
+                content=error_response(
+                    message="Requested model version not found.",
+                    model_name="hybrid",
+                    detail="Requested model version not found."
+                )
+            )
 
         selected_models = MODEL_REGISTRY[model_version]
 
@@ -1598,24 +1641,33 @@ def get_recommendations(
             recs = cold_recs
 
     if not recs:
-        raise HTTPException(404, "Item not found or no recommendations.")
+        return JSONResponse(
+            status_code=404,
+            content=error_response(
+                message="Item not found or no recommendations.",
+                model_name="hybrid",
+                version=model_version or ACTIVE_MODEL_VERSION,
+                detail="Item not found or no recommendations."
+            )
+        )
 
     has_history = False
     if user_id and models.get("collab") is not None:
         has_history = user_id in models["collab"]._user_to_idx
 
-    payload = {
-        "query": query_title,
-        "query_item": query_title,
-        "count": len(recs),
-        "results": recs,
-        "recommendations": recs,
-        "weights": models["hybrid"].get_weights(),
-        "explain": explain,
-        "target_catalog": target_catalog,
-        "model_version": model_version or ACTIVE_MODEL_VERSION,
-        "has_history": has_history,
-    }
+    payload = success_response(
+        recommendations=recs,
+        model_name="hybrid",
+        version=model_version or ACTIVE_MODEL_VERSION,
+        message="Recommendations retrieved successfully",
+        query=query_title,
+        query_item=query_title,
+        weights=models["hybrid"].get_weights(),
+        explain=explain,
+        target_catalog=target_catalog,
+        model_version=model_version or ACTIVE_MODEL_VERSION,
+        has_history=has_history
+    )
 
     if (
         SHADOW_MODEL_VERSION
@@ -1670,6 +1722,7 @@ def get_recommendations(
 
 
 
+
 @app.get("/api/recommend/cold_start")
 def recommend_cold_start(
     response: Response,
@@ -1689,7 +1742,14 @@ def recommend_cold_start(
     blended recommendations based on content TF-IDF similarity and popularity.
     """
     if not models or not models.get('item_df'):
-        raise HTTPException(400, "Models not built or no item catalog available.")
+        return JSONResponse(
+            status_code=400,
+            content=error_response(
+                message="Models not built or no item catalog available.",
+                model_name="cold_start",
+                detail="Models not built or no item catalog available."
+            )
+        )
 
     parts = []
     if title:
@@ -1703,24 +1763,53 @@ def recommend_cold_start(
 
     combined_text = " ".join(parts).strip()
     if not combined_text:
-        raise HTTPException(400, "Provide at least one of title, description, category or tags.")
+        return JSONResponse(
+            status_code=400,
+            content=error_response(
+                message="Provide at least one of title, description, category or tags.",
+                model_name="cold_start",
+                detail="Provide at least one of title, description, category or tags."
+            )
+        )
 
     weights = (float(alpha), float(beta), float(gamma))
     recs = cold_start_recommendation(combined_text, top_n=top_n, weights=weights, target_catalog=target_catalog)
     if not recs:
-        raise HTTPException(404, "No cold-start recommendations available.")
+        return JSONResponse(
+            status_code=404,
+            content=error_response(
+                message="No cold-start recommendations available.",
+                model_name="cold_start",
+                detail="No cold-start recommendations available."
+            )
+        )
 
     # Do not cache cold-start responses by default (content depends on input metadata)
     _set_cache_headers(response, "MISS")
-    return {"query": combined_text, "recommendations": recs, "weights": {"alpha": weights[0], "beta": weights[1], "gamma": weights[2]}}
+    return success_response(
+        recommendations=recs,
+        model_name="cold_start",
+        message="Cold-start recommendations retrieved successfully",
+        query=combined_text,
+        weights={"alpha": weights[0], "beta": weights[1], "gamma": weights[2]}
+    )
+
 
 
 @app.get("/api/user_recommend")
-def get_user_recommendations(user_id: str, top_n: int = 10, explain: bool = Query(False)):
+@app.get("/api/recommend/user/{user_id}")
+def get_user_recommendations(user_id: str, top_n: int = Query(10, ge=1, le=50), explain: bool = Query(False)):
     """Get hybrid recommendations for a user."""
     _validate_user_id(user_id)  # allowlist-validate before model lookup
     if not models.get("ready") or not models.get("hybrid"):
-        raise HTTPException(400, "Models not built. Build first via /api/build.")
+        return JSONResponse(
+            status_code=400,
+            content=error_response(
+                message="Models not built. Build first via /api/build.",
+                model_name="collaborative",
+                detail="Models not built. Build first via /api/build."
+            )
+        )
     
     is_fallback = False
     collab = models["hybrid"].collab_model
@@ -1729,12 +1818,15 @@ def get_user_recommendations(user_id: str, top_n: int = 10, explain: bool = Quer
 
     recs = models["hybrid"].recommend_for_user(user_id, top_n=top_n, explain=explain)
         
-    return {
-        "query_user": user_id,
-        "recommendations": recs,
-        "fallback": is_fallback,
-        "weights": models["hybrid"].get_weights(),
-    }
+    return success_response(
+        recommendations=recs,
+        model_name="collaborative",
+        message="User recommendations retrieved successfully",
+        query_user=user_id,
+        fallback=is_fallback,
+        weights=models["hybrid"].get_weights()
+    )
+
 
 @app.websocket("/ws/recommendations")
 async def websocket_recommendations(websocket: WebSocket):
@@ -1748,18 +1840,20 @@ async def websocket_recommendations(websocket: WebSocket):
             user_id = data.get("user_id")
 
             if not models.get("ready") or not models.get("hybrid"):
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Models not built yet."
-                })
+                await websocket.send_json(error_response(
+                    message="Models not built yet.",
+                    model_name="hybrid",
+                    type="error"
+                ))
                 continue
 
             recs = models["hybrid"].recommend(item_title, user_id=user_id, top_n=top_n, explain=explain)
-            await websocket.send_json({
-                "type": "recommendations",
-                "query_item": item_title,
-                "recommendations": recs
-            })
+            await websocket.send_json(success_response(
+                recommendations=recs,
+                model_name="hybrid",
+                type="recommendations",
+                query_item=item_title
+            ))
     except WebSocketDisconnect:
         realtime_hub.disconnect(websocket)
     except Exception as e:
@@ -1776,14 +1870,24 @@ def realtime_behavior(
     _csrf: None = Depends(csrf_header_dep),
 ):
     if not models.get("ready") or not models.get("hybrid"):
-        raise HTTPException(status_code=400, detail="Models not built yet. Train the models first.")
+        return JSONResponse(
+            status_code=400,
+            content=error_response(
+                message="Models not built yet. Train the models first.",
+                model_name="realtime",
+                detail="Models not built yet. Train the models first."
+            )
+        )
 
     recs = models["hybrid"].recommend(req.item_title, top_n=req.top_n, explain=req.explain)
-    return {
-        "type": "recommendations",
-        "query_item": req.item_title,
-        "recommendations": recs
-    }
+    return success_response(
+        recommendations=recs,
+        model_name="realtime",
+        message="Realtime recommendations retrieved successfully",
+        type="recommendations",
+        query_item=req.item_title
+    )
+
 
 
 def _json_scalar(value):
@@ -1813,13 +1917,34 @@ def get_similar_items(
         return rate_limited
 
     if not models["ready"] or models["item_df"] is None:
-        raise HTTPException(400, "Models not built. Build first via /api/build.")
+        return JSONResponse(
+            status_code=400,
+            content=error_response(
+                message="Models not built. Build first via /api/build.",
+                model_name="hybrid",
+                detail="Models not built. Build first via /api/build."
+            )
+        )
     item_df = models["item_df"]
     if "id" not in item_df.columns:
-        raise HTTPException(400, "Model data does not include product ids.")
+        return JSONResponse(
+            status_code=400,
+            content=error_response(
+                message="Model data does not include product ids.",
+                model_name="hybrid",
+                detail="Model data does not include product ids."
+            )
+        )
     id_matches = item_df[item_df["id"].astype(str) == str(item_id)]
     if id_matches.empty:
-        raise HTTPException(404, "Item not found.")
+        return JSONResponse(
+            status_code=404,
+            content=error_response(
+                message="Item not found.",
+                model_name="hybrid",
+                detail="Item not found."
+            )
+        )
     source = id_matches.iloc[0]
     source_title = str(source.get("title", ""))
     source_category = source.get("category", "")
@@ -1830,18 +1955,28 @@ def get_similar_items(
         recs = [r for r in recs if str(r.get("category", "")).casefold() == requested_category.casefold()]
     recs = recs[:top_n]
     if not recs:
-        raise HTTPException(404, "No similar items found.")
-    return {
-        "query_item": {
+        return JSONResponse(
+            status_code=404,
+            content=error_response(
+                message="No similar items found.",
+                model_name="hybrid",
+                detail="No similar items found."
+            )
+        )
+    return success_response(
+        recommendations=recs,
+        model_name="hybrid",
+        message="Similar items retrieved successfully",
+        query_item={
             "id": _json_scalar(source.get("id")),
             "title": source_title,
             "category": _json_scalar(source_category),
         },
-        "category_filter": requested_category,
-        "recommendations": recs,
-        "total": len(recs),
-        "explain": explain,
-    }
+        category_filter=requested_category,
+        total=len(recs),
+        explain=explain
+    )
+
 
 
 # ── Similarity Matrix ─────────────────────────────────────────────────
